@@ -49,7 +49,7 @@ if(YOCTO_OPENGL)
         find_package(GLEW REQUIRED)
     endif(UNIX AND NOT APPLE)
     add_library(yocto_gl yocto/yocto_gl.h yocto/yocto_gl.cpp yocto/ext/stb_image.cpp yocto/ext/imgui/imgui.cpp yocto/ext/imgui/imgui_draw.cpp yocto/ext/imgui/imgui_impl_glfw_gl3.cpp)
-    target_link_libraries(yocto_gl ${OPENGL_gl_LIBRARY} ${GLFW_LIBRARY} ${GLEW_LIBRARIES})
+    target_link_libraries(yocto_gl ${OPENGL_gl_LIBRARY} ${GLFW_LIBRARY} ${GLEW_LIBRARIES} ${X11_LIBRARIES} X11 Xxf86vm Xrandr Xi dl Xinerama Xcursor)
 else(YOCTO_OPENGL)
     add_library(yocto_gl yocto/yocto_gl.h yocto/yocto_gl.cpp yocto/ext/stb_image.cpp)
 endif(YOCTO_OPENGL)
@@ -63,11 +63,15 @@ add_executable(ytestgen apps/ytestgen.cpp yocto/yocto_gl.h)
 add_executable(ytrace apps/ytrace.cpp yocto/yocto_gl.h)
 add_executable(yscnproc apps/yscnproc.cpp yocto/yocto_gl.h)
 add_executable(yimproc apps/yimproc.cpp yocto/yocto_gl.h)
+add_executable(ciry_generator apps/city_generator.cpp yocto/yocto_gl.h)
+
 
 target_link_libraries(ytestgen yocto_gl)
 target_link_libraries(ytrace yocto_gl)
 target_link_libraries(yscnproc yocto_gl)
 target_link_libraries(yimproc yocto_gl)
+target_link_libraries(ciry_generator yocto_gl)
+
 
 if(YOCTO_OPENGL)
     add_executable(yview apps/yview.cpp yocto/yocto_gl.h)
@@ -80,3 +84,12 @@ if(YOCTO_OPENGL)
     target_link_libraries(ygltfview yocto_gl)
     target_link_libraries(yimview yocto_gl)
 endif(YOCTO_OPENGL)
+# 
+# 
+# SET(CMAKE_SKIP_BUILD_RPATH FALSE)
+# 
+# SET(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE) 
+# 
+# SET(CMAKE_INSTALL_RPATH "/usr/lib64")
+# 
+# SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
