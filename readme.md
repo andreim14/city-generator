@@ -83,7 +83,7 @@ The generation of the streets can be controlled by adjusting the `-sc` parameter
 ![Image](images/possible_street_generation.png)
     with high split chance
     
-![Image](images/possible_street_generation_1.png)
+![Image](images/possible_street_generation_3.png)
     with 0 as split chance
     
 ![Image](images/possible_street_generation_2.png)
