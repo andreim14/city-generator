@@ -47,6 +47,7 @@ and released under the MIT license. Features include:</p>
 <li>simple logger and thread pool</li>
 <li>path tracer supporting surfaces and hairs, GGX and MIS</li>
 <li>support for loading and saving Wavefront OBJ and Khronos glTF</li>
+<li>support for loading Bezier curves from SVG</li>
 <li>OpenGL utilities to manage textures, buffers and prograrms</li>
 <li>OpenGL shader for image viewing and GGX microfacet and hair rendering</li>
 </ul>
@@ -93,8 +94,10 @@ can be disabled by defining YGL_IMAGEIO to 0 before including this file.
 If these features are useful, then the implementation files need to
 included in the manner described by the respective libraries. To simplify
 builds, we provice a file that builds these libraries, <code>stb_image.cpp</code>.</p>
-<p>To support Khronos glTF, Yocto/GL depends on <code>json.hpp</code>. These feature can
+<p>To support Khronos glTF, Yocto/GL depends on <code>json.hpp</code>. This feature can
 be disabled by defining YGL_GLTF to 0 before including this file.</p>
+<p>To support SVG, Yocto/GL depends on <code>nanosvg.h</code>. This feature can
+be disabled by defining YGL_SVG to 0 before including this file.</p>
 <p>OpenGL utilities include the OpenGL libaries, use GLEW on Windows/Linux,
 GLFW for windows handling and Dear ImGui for UI support.
 Since OpenGL is quite onerous and hard to link, its support is disabled by
@@ -218,10 +221,12 @@ manipulation useful to support scene viewing and path tracing.</p>
 <li>convert quads to triangles with <code>convert_quads_to_triangles()</code></li>
 <li>convert face varying to vertex shared representations with
     <code>convert_face_varying()</code></li>
-<li>subdivide elements by edge splits with <code>subdivide_elems()</code> and
-    <code>subdivide_vert()</code></li>
-<li>Catmull-Clark subdivision surface with <code>subdivide_catmullclark()</code> with
-    support for edge and vertex creasing</li>
+<li>subdivide elements by edge splits with <code>subdivide_elems_linear()</code> and
+    <code>subdivide_vert_linear()</code></li>
+<li>Catmull-Clark subdivision surface with <code>subdivide_vert_catmullclark()</code>
+    with support for edge and vertex creasing</li>
+<li>subdvide Bezier with <code>subdivide_bezier_recursive()</code> and
+    <code>subdivide_vert_bezier()</code></li>
 <li>example shapes: <code>make_cube()</code>, <code>make_uvsphere()</code>, <code>make_uvhemisphere()</code>,
     <code>make_uvquad()</code>, <code>make_uvcube()</code>, <code>make_fvcube()</code>, <code>make_hair()</code>,
     <code>make_suzanne()</code></li>
@@ -550,6 +555,7 @@ and user end.</p>
 <p>Here we mark only major features added to the library. Small refactorings
 and bug fixes are reported here.</p>
 <ul>
+<li>v 0.2.0: various bug fixes and improvement to OpenGL drawing and widgets</li>
 <li>v 0.1.0: initial release after refactoring</li>
 </ul>
 <h2>API Documentation</h2>
@@ -2116,6 +2122,12 @@ and bug fixes are reported here.</p>
 
 
 <p>stream write</p>
+<h4>Function operator &lt; &lt;()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">ostream</span><span class="o">&amp;</span> <span class="k">operator</span><span class="o">&lt;&lt;</span><span class="p">(</span><span class="n">ostream</span><span class="o">&amp;</span> <span class="n">os</span><span class="p">,</span> <span class="k">const</span> <span class="n">vec4b</span><span class="o">&amp;</span> <span class="n">a</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>stream write</p>
 <h4>Function operator > >()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">istream</span><span class="o">&amp;</span> <span class="k">operator</span><span class="o">&gt;&gt;</span><span class="p">(</span><span class="n">istream</span><span class="o">&amp;</span> <span class="n">is</span><span class="p">,</span> <span class="n">vec2f</span><span class="o">&amp;</span> <span class="n">a</span><span class="p">);</span>
 </code></pre></div>
@@ -2148,6 +2160,12 @@ and bug fixes are reported here.</p>
 <p>stream read</p>
 <h4>Function operator > >()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">istream</span><span class="o">&amp;</span> <span class="k">operator</span><span class="o">&gt;&gt;</span><span class="p">(</span><span class="n">istream</span><span class="o">&amp;</span> <span class="n">is</span><span class="p">,</span> <span class="n">vec4i</span><span class="o">&amp;</span> <span class="n">a</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>stream read</p>
+<h4>Function operator > >()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">istream</span><span class="o">&amp;</span> <span class="k">operator</span><span class="o">&gt;&gt;</span><span class="p">(</span><span class="n">istream</span><span class="o">&amp;</span> <span class="n">is</span><span class="p">,</span> <span class="n">vec4b</span><span class="o">&amp;</span> <span class="n">a</span><span class="p">);</span>
 </code></pre></div>
 
 
@@ -4274,6 +4292,12 @@ boundaries.</p>
 
 <p>Convert quads to triangles with a diamond-like topology.
 Quads have to be consecutive one row after another.</p>
+<h4>Function convert_bezier_to_lines()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;</span> <span class="n">convert_bezier_to_lines</span><span class="p">(</span><span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">beziers</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Convert beziers to lines using 3 lines for each bezier.</p>
 <h4>Function convert_face_varying()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">tuple</span><span class="o">&lt;</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3f</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3f</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2f</span><span class="o">&gt;&gt;</span>
 <span class="n">convert_face_varying</span><span class="p">(</span><span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">quads_pos</span><span class="p">,</span>
@@ -4285,38 +4309,55 @@ Quads have to be consecutive one row after another.</p>
 
 <p>Convert face varying data to single primitives. Returns the quads indices
 and filled vectors for pos, norm and texcoord.</p>
-<h4>Function subdivide_elems()</h4>
+<h4>Function subdivide_elems_linear()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">tuple</span><span class="o">&lt;</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3i</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;</span><span class="p">,</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&gt;</span>
-<span class="n">subdivide_elems</span><span class="p">(</span><span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;&amp;</span> <span class="n">lines</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3i</span><span class="o">&gt;&amp;</span> <span class="n">triangles</span><span class="p">,</span>
-    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">quads</span><span class="p">,</span> <span class="kt">int</span> <span class="n">nverts</span><span class="p">);</span>
+<span class="n">subdivide_elems_linear</span><span class="p">(</span><span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;&amp;</span> <span class="n">lines</span><span class="p">,</span>
+    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3i</span><span class="o">&gt;&amp;</span> <span class="n">triangles</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">quads</span><span class="p">,</span> <span class="kt">int</span> <span class="n">nverts</span><span class="p">);</span>
 </code></pre></div>
 
 
 <p>Tesselate lines, triangles and quads by spolitting edges.
 Returns the tesselated elements and dictionaries for vertex calculations.</p>
-<h4>Function subdivide_vert()</h4>
+<h4>Function subdivide_vert_linear()</h4>
 <div class="codehilite"><pre><code><span></span><span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span> <span class="n">T</span><span class="o">&gt;</span>
-<span class="kr">inline</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span> <span class="n">subdivide_vert</span><span class="p">(</span><span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;&amp;</span> <span class="n">vert</span><span class="p">,</span>
+<span class="kr">inline</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span> <span class="n">subdivide_vert_linear</span><span class="p">(</span><span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;&amp;</span> <span class="n">vert</span><span class="p">,</span>
     <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;&amp;</span> <span class="n">edges</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">faces</span><span class="p">,</span>
     <span class="kt">bool</span> <span class="n">normalized</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
 </code></pre></div>
 
 
 <p>Subdivide vertex properties given the maps</p>
-<h4>Function subdivide_catmullclark()</h4>
+<h4>Function subdivide_vert_catmullclark()</h4>
 <div class="codehilite"><pre><code><span></span><span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span> <span class="n">T</span><span class="o">&gt;</span>
-<span class="kr">inline</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span> <span class="n">subdivide_catmullclark</span><span class="p">(</span><span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">quads</span><span class="p">,</span>
+<span class="kr">inline</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span> <span class="n">subdivide_vert_catmullclark</span><span class="p">(</span><span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">quads</span><span class="p">,</span>
     <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;&amp;</span> <span class="n">vert</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;&amp;</span> <span class="n">crease_tlines</span><span class="p">,</span>
     <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;&amp;</span> <span class="n">crease_tpoints</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">normalized</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
 </code></pre></div>
 
 
 <p>Performs the smoothing step of Catmull-Clark. Start with a tesselate quad
-mesh obtained with subdivide_elems() and subdivide_vert(). To handle open
-meshes with boundary, get the boundary from make_boundary_edge() and pass it
-as crease_lines. To fix the boundary entirely, just get the boundary
-vertices and pass it as creases.</p>
+mesh obtained with subdivide_elems_linear() and subdivide_vert_linear(). To
+handle open meshes with boundary, get the boundary from make_boundary_edge()
+and pass it as crease_lines. To fix the boundary entirely, just get the
+boundary vertices and pass it as creases.</p>
+<h4>Function subdivide_bezier_recursive()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">tuple</span><span class="o">&lt;</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&gt;</span>
+<span class="n">subdivide_bezier_recursive</span><span class="p">(</span><span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">beziers</span><span class="p">,</span> <span class="kt">int</span> <span class="n">nverts</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Subdivide bezier recursive by splitting each segment into two in the middle.
+Returns the tesselated elements and dictionaries for vertex calculations.</p>
+<h4>Function subdivide_vert_bezier()</h4>
+<div class="codehilite"><pre><code><span></span><span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span> <span class="n">T</span><span class="o">&gt;</span>
+<span class="kr">inline</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span> <span class="n">subdivide_vert_bezier</span><span class="p">(</span><span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;&amp;</span> <span class="n">vert</span><span class="p">,</span>
+    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;&amp;</span> <span class="n">verts</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">segments</span><span class="p">,</span>
+    <span class="kt">bool</span> <span class="n">normalized</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Subdivide vertex properties given the maps</p>
 <h4>Function make_uvquads()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">tuple</span><span class="o">&lt;</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2f</span><span class="o">&gt;&gt;</span> <span class="n">make_uvquads</span><span class="p">(</span><span class="kt">int</span> <span class="n">usteps</span><span class="p">,</span> <span class="kt">int</span> <span class="n">vsteps</span><span class="p">,</span>
     <span class="kt">bool</span> <span class="n">uwrap</span> <span class="o">=</span> <span class="nb">false</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">vwrap</span> <span class="o">=</span> <span class="nb">false</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">vpole0</span> <span class="o">=</span> <span class="nb">false</span><span class="p">,</span>
@@ -4541,6 +4582,12 @@ texcoord.</p>
 
 <p>Make a cutout sphere. This is not watertight. Returns quads, pos, norm,
 texcoord.</p>
+<h4>Function make_bezier_circle()</h4>
+<div class="codehilite"><pre><code><span></span><span class="n">tuple</span><span class="o">&lt;</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3f</span><span class="o">&gt;&gt;</span> <span class="n">make_bezier_circle</span><span class="p">();</span>
+</code></pre></div>
+
+
+<p>Make a bezier circle. Returns bezier, pos.</p>
 <h4>Function make_hair()</h4>
 <div class="codehilite"><pre><code><span></span><span class="n">tuple</span><span class="o">&lt;</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3f</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3f</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2f</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">vector</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;&gt;</span>
 <span class="n">make_hair</span><span class="p">(</span><span class="kt">int</span> <span class="n">num</span><span class="p">,</span> <span class="kt">int</span> <span class="n">level</span><span class="p">,</span> <span class="k">const</span> <span class="n">vec2f</span><span class="o">&amp;</span> <span class="n">len</span><span class="p">,</span> <span class="k">const</span> <span class="n">vec2f</span><span class="o">&amp;</span> <span class="n">rad</span><span class="p">,</span>
@@ -5624,6 +5671,7 @@ BVHs, shape BVHs, each of which of a uniform primitive type.</p>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;</span> <span class="n">quads_pos</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;</span> <span class="n">quads_norm</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;</span> <span class="n">quads_texcoord</span><span class="p">;</span>
+    <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;</span> <span class="n">beziers</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3f</span><span class="o">&gt;</span> <span class="n">pos</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3f</span><span class="o">&gt;</span> <span class="n">norm</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2f</span><span class="o">&gt;</span> <span class="n">texcoord</span><span class="p">;</span>
@@ -5631,6 +5679,8 @@ BVHs, shape BVHs, each of which of a uniform primitive type.</p>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4f</span><span class="o">&gt;</span> <span class="n">color</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span> <span class="n">radius</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4f</span><span class="o">&gt;</span> <span class="n">tangsp</span><span class="p">;</span>
+    <span class="kt">int</span> <span class="n">subdivision_level</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="kt">bool</span> <span class="n">subdivision_catmullclark</span> <span class="o">=</span> <span class="nb">false</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span> <span class="n">elem_cdf</span><span class="p">;</span>
     <span class="n">bvh_tree</span><span class="o">*</span> <span class="n">bvh</span> <span class="o">=</span> <span class="k">nullptr</span><span class="p">;</span>
     <span class="n">bbox3f</span> <span class="n">bbox</span> <span class="o">=</span> <span class="n">invalid_bbox3f</span><span class="p">;</span>
@@ -5652,6 +5702,7 @@ May contain only one of the points/lines/triangles/quads.</p>
 <li>quads_pos:      face-varying indices for position</li>
 <li>quads_norm:      face-varying indices for normal</li>
 <li>quads_texcoord:      face-varying indices for texcoord</li>
+<li>beziers:      bezier</li>
 <li>pos:      per-vertex position (3 float)</li>
 <li>norm:      per-vertex normals (3 float)</li>
 <li>texcoord:      per-vertex texcoord (2 float)</li>
@@ -5659,6 +5710,8 @@ May contain only one of the points/lines/triangles/quads.</p>
 <li>color:      per-vertex color (4 float)</li>
 <li>radius:      per-vertex radius (1 float)</li>
 <li>tangsp:      per-vertex tangent space (4 float)</li>
+<li>subdivision_level:      number of times to subdivide</li>
+<li>subdivision_catmullclark:      whether to use Catmull-Clark subdivision</li>
 <li>elem_cdf:      element CDF for sampling</li>
 <li>bvh:      BVH</li>
 <li>bbox:      bounding box (needs to be updated explicitly)</li>
@@ -5841,8 +5894,8 @@ This is only used internally to avoid looping over all objects every time.</p>
 
 
 <p>Evaluate a texture</p>
-<h4>Function subdivide_shape()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">subdivide_shape</span><span class="p">(</span><span class="n">shape</span><span class="o">*</span> <span class="n">shp</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">subdiv</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
+<h4>Function subdivide_shape_once()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">subdivide_shape_once</span><span class="p">(</span><span class="n">shape</span><span class="o">*</span> <span class="n">shp</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">subdiv</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
 </code></pre></div>
 
 
@@ -5855,13 +5908,17 @@ is true.</p>
 
 <p>Facet a shape. Supports only non-face0varying shapes</p>
 <h4>Function tesselate_shape()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">tesselate_shape</span><span class="p">(</span><span class="n">shape</span><span class="o">*</span> <span class="n">shp</span><span class="p">);</span>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">tesselate_shape</span><span class="p">(</span><span class="n">shape</span><span class="o">*</span> <span class="n">shp</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">subdivide</span><span class="p">,</span>
+    <span class="kt">bool</span> <span class="n">facevarying_to_sharedvertex</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">quads_to_triangles</span><span class="p">,</span>
+    <span class="kt">bool</span> <span class="n">bezier_to_lines</span><span class="p">);</span>
 </code></pre></div>
 
 
 <p>Tesselate a shape into basic primitives</p>
 <h4>Function tesselate_shapes()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">tesselate_shapes</span><span class="p">(</span><span class="n">scene</span><span class="o">*</span> <span class="n">scn</span><span class="p">);</span>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">tesselate_shapes</span><span class="p">(</span><span class="n">scene</span><span class="o">*</span> <span class="n">scn</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">subdivide</span><span class="p">,</span>
+    <span class="kt">bool</span> <span class="n">facevarying_to_sharedvertex</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">quads_to_triangles</span><span class="p">,</span>
+    <span class="kt">bool</span> <span class="n">bezier_to_lines</span><span class="p">);</span>
 </code></pre></div>
 
 
@@ -6504,7 +6561,8 @@ Samples have to be traced consecutively.</p>
     <span class="n">point</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">line</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
     <span class="n">face</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
-    <span class="n">tetra</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span>
+    <span class="n">bezier</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span>
+    <span class="n">tetra</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span>
 <span class="p">}</span>
 </code></pre></div>
 
@@ -6515,6 +6573,7 @@ Samples have to be traced consecutively.</p>
 <li>point:      lists of points</li>
 <li>line:      polylines</li>
 <li>face:      polygon faces</li>
+<li>bezier:      bezier segments</li>
 <li>tetra:      tetrahedrons</li>
 </ul>
 </li>
@@ -6542,6 +6601,8 @@ Samples have to be traced consecutively.</p>
     <span class="n">string</span> <span class="n">matname</span><span class="p">;</span>
     <span class="n">string</span> <span class="n">groupname</span><span class="p">;</span>
     <span class="kt">bool</span> <span class="n">smoothing</span> <span class="o">=</span> <span class="nb">true</span><span class="p">;</span>
+    <span class="kt">int</span> <span class="n">subdivision_level</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="kt">bool</span> <span class="n">subdivision_catmullclark</span> <span class="o">=</span> <span class="nb">false</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">obj_vertex</span><span class="o">&gt;</span> <span class="n">verts</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">obj_element</span><span class="o">&gt;</span> <span class="n">elems</span><span class="p">;</span>
 <span class="p">}</span>
@@ -6554,6 +6615,8 @@ Samples have to be traced consecutively.</p>
 <li>matname:      material name</li>
 <li>groupname:      group name</li>
 <li>smoothing:      smoothing</li>
+<li>subdivision_level:      number of times to subdivide</li>
+<li>subdivision_catmullclark:      whether to use Catmull-Clark subdivision</li>
 <li>verts:      element vertices</li>
 <li>elems:      element faces</li>
 </ul>
@@ -6828,6 +6891,7 @@ Samples have to be traced consecutively.</p>
     <span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span> <span class="n">points</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;</span> <span class="n">lines</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3i</span><span class="o">&gt;</span> <span class="n">triangles</span><span class="p">;</span>
+    <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;</span> <span class="n">bezier</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;</span> <span class="n">tetras</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3f</span><span class="o">&gt;</span> <span class="n">pos</span><span class="p">;</span>
     <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3f</span><span class="o">&gt;</span> <span class="n">norm</span><span class="p">;</span>
@@ -6846,6 +6910,7 @@ Samples have to be traced consecutively.</p>
 <li>points:      points</li>
 <li>lines:      lines</li>
 <li>triangles:      triangles</li>
+<li>bezier:      bezier</li>
 <li>tetras:      tetrahedrons</li>
 <li>pos:      per-vertex position (3 float)</li>
 <li>norm:      per-vertex normals (3 float)</li>
@@ -7968,6 +8033,64 @@ not be present.</p>
 </ul>
 </li>
 </ul>
+<h4>Struct svg_path</h4>
+<div class="codehilite"><pre><code><span></span><span class="k">struct</span> <span class="n">svg_path</span> <span class="p">{</span>
+    <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2f</span><span class="o">&gt;</span> <span class="n">pos</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+
+
+<p>Svg path</p>
+<ul>
+<li>Members:<ul>
+<li>pos:      Path vertices</li>
+</ul>
+</li>
+</ul>
+<h4>Struct svg_shape</h4>
+<div class="codehilite"><pre><code><span></span><span class="k">struct</span> <span class="n">svg_shape</span> <span class="p">{</span>
+    <span class="n">vector</span><span class="o">&lt;</span><span class="n">svg_path</span><span class="o">*&gt;</span> <span class="n">paths</span><span class="p">;</span>
+    <span class="o">~</span><span class="n">svg_shape</span><span class="p">();</span> 
+<span class="p">}</span>
+</code></pre></div>
+
+
+<p>Svg shape</p>
+<ul>
+<li>Members:<ul>
+<li>paths:      Paths</li>
+<li>~svg_shape():      Cleanup</li>
+</ul>
+</li>
+</ul>
+<h4>Struct svg_scene</h4>
+<div class="codehilite"><pre><code><span></span><span class="k">struct</span> <span class="n">svg_scene</span> <span class="p">{</span>
+    <span class="n">vector</span><span class="o">&lt;</span><span class="n">svg_shape</span><span class="o">*&gt;</span> <span class="n">shapes</span><span class="p">;</span>
+    <span class="o">~</span><span class="n">svg_scene</span><span class="p">();</span> 
+<span class="p">}</span>
+</code></pre></div>
+
+
+<p>Svg scene</p>
+<ul>
+<li>Members:<ul>
+<li>shapes:      Shapes</li>
+<li>~svg_scene():      Cleanup</li>
+</ul>
+</li>
+</ul>
+<h4>Function load_svg()</h4>
+<div class="codehilite"><pre><code><span></span><span class="n">svg_scene</span><span class="o">*</span> <span class="nf">load_svg</span><span class="p">(</span><span class="k">const</span> <span class="n">string</span><span class="o">&amp;</span> <span class="n">filename</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Load SVG</p>
+<h4>Function save_svg()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kt">void</span> <span class="nf">save_svg</span><span class="p">(</span><span class="k">const</span> <span class="n">string</span><span class="o">&amp;</span> <span class="n">filename</span><span class="p">,</span> <span class="k">const</span> <span class="n">svg_scene</span><span class="o">*</span> <span class="n">svg</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Save SVG</p>
 <h4>Function startswith()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">bool</span> <span class="nf">startswith</span><span class="p">(</span><span class="k">const</span> <span class="n">string</span><span class="o">&amp;</span> <span class="n">str</span><span class="p">,</span> <span class="k">const</span> <span class="n">string</span><span class="o">&amp;</span> <span class="n">substr</span><span class="p">);</span>
 </code></pre></div>
@@ -8476,7 +8599,7 @@ By default a non-verbose stdout logger is creater.</p>
 
 <p>Enable/disable depth test</p>
 <h4>Function gl_enable_culling()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kt">void</span> <span class="nf">gl_enable_culling</span><span class="p">(</span><span class="kt">bool</span> <span class="n">enabled</span><span class="p">);</span>
+<div class="codehilite"><pre><code><span></span><span class="kt">void</span> <span class="nf">gl_enable_culling</span><span class="p">(</span><span class="kt">bool</span> <span class="n">enabled</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">front</span> <span class="o">=</span> <span class="nb">false</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">back</span> <span class="o">=</span> <span class="nb">true</span><span class="p">);</span>
 </code></pre></div>
 
 
@@ -8530,70 +8653,64 @@ robust.</p>
 
 
 <p>Opengl texture object</p>
-<h4>Function make_texture()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_texture</span> <span class="nf">make_texture</span><span class="p">(</span><span class="kt">int</span> <span class="n">w</span><span class="p">,</span> <span class="kt">int</span> <span class="n">h</span><span class="p">,</span> <span class="kt">int</span> <span class="n">nc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">float</span><span class="o">*</span> <span class="n">pixels</span><span class="p">,</span>
-    <span class="kt">bool</span> <span class="n">linear</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">mipmap</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">as_float</span><span class="p">);</span>
+<h4>Function update_texture()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_texture</span><span class="p">(</span><span class="n">gl_texture</span><span class="o">&amp;</span> <span class="n">txt</span><span class="p">,</span> <span class="kt">int</span> <span class="n">w</span><span class="p">,</span> <span class="kt">int</span> <span class="n">h</span><span class="p">,</span> <span class="kt">int</span> <span class="n">nc</span><span class="p">,</span>
+    <span class="k">const</span> <span class="kt">float</span><span class="o">*</span> <span class="n">pixels</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">linear</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">mipmap</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">as_float</span><span class="p">);</span>
 </code></pre></div>
 
 
-<p>Creates a texture with pixels values of size w, h with nc number of
-components (1-4).
-Internally use float if as_float and filtering if filter.
-Returns the texture id.</p>
-<h4>Function make_texture()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_texture</span> <span class="nf">make_texture</span><span class="p">(</span><span class="kt">int</span> <span class="n">w</span><span class="p">,</span> <span class="kt">int</span> <span class="n">h</span><span class="p">,</span> <span class="kt">int</span> <span class="n">nc</span><span class="p">,</span>
+<p>Updates a texture with pixels values of size w, h with nc number of
+components (1-4). Internally use float if as_float and filtering if filter.</p>
+<h4>Function update_texture()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_texture</span><span class="p">(</span><span class="n">gl_texture</span><span class="o">&amp;</span> <span class="n">txt</span><span class="p">,</span> <span class="kt">int</span> <span class="n">w</span><span class="p">,</span> <span class="kt">int</span> <span class="n">h</span><span class="p">,</span> <span class="kt">int</span> <span class="n">nc</span><span class="p">,</span>
     <span class="k">const</span> <span class="kt">unsigned</span> <span class="kt">char</span><span class="o">*</span> <span class="n">pixels</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">linear</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">mipmap</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">as_srgb</span><span class="p">);</span>
 </code></pre></div>
 
 
-<p>Creates a texture with pixels values of size w, h with nc number of
-components (1-4).
-Internally use srgb lookup if as_srgb and filtering if filter.
-Returns the texture id.</p>
+<p>Updates a texture with pixels values of size w, h with nc number of
+components (1-4). Internally use float if as_float and filtering if filter.</p>
+<h4>Function update_texture()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_texture</span><span class="p">(</span><span class="n">gl_texture</span><span class="o">&amp;</span> <span class="n">txt</span><span class="p">,</span> <span class="k">const</span> <span class="n">image4f</span><span class="o">&amp;</span> <span class="n">img</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">linear</span><span class="p">,</span>
+    <span class="kt">bool</span> <span class="n">mipmap</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">as_float</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Updates a texture with pixels values from an image.
+Internally use float if as_float and filtering if filter.</p>
+<h4>Function update_texture()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_texture</span><span class="p">(</span><span class="n">gl_texture</span><span class="o">&amp;</span> <span class="n">txt</span><span class="p">,</span> <span class="k">const</span> <span class="n">image4b</span><span class="o">&amp;</span> <span class="n">img</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">linear</span><span class="p">,</span>
+    <span class="kt">bool</span> <span class="n">mipmap</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">as_srgb</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Updates a texture with pixels values from an image.
+Internally use float if as_float and filtering if filter.</p>
+<h4>Function update_texture()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_texture</span><span class="p">(</span><span class="n">gl_texture</span><span class="o">&amp;</span> <span class="n">txt</span><span class="p">,</span> <span class="k">const</span> <span class="n">image4f</span><span class="o">&amp;</span> <span class="n">img</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Updates a texture with pixels values from an image.</p>
+<h4>Function update_texture()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_texture</span><span class="p">(</span><span class="n">gl_texture</span><span class="o">&amp;</span> <span class="n">txt</span><span class="p">,</span> <span class="k">const</span> <span class="n">image4b</span><span class="o">&amp;</span> <span class="n">img</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Updates a texture with pixels values from an image.</p>
 <h4>Function make_texture()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_texture</span> <span class="nf">make_texture</span><span class="p">(</span>
     <span class="k">const</span> <span class="n">image4f</span><span class="o">&amp;</span> <span class="n">img</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">linear</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">mipmap</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">as_float</span><span class="p">);</span>
 </code></pre></div>
 
 
-<p>Creates a texture from an image.
-Internally use float if as_float and filtering if filter.
-Returns the texture id.</p>
+<p>Creates a texture from an image. Convenience wrapper to update_texture().</p>
 <h4>Function make_texture()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_texture</span> <span class="nf">make_texture</span><span class="p">(</span>
     <span class="k">const</span> <span class="n">image4b</span><span class="o">&amp;</span> <span class="n">img</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">linear</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">mipmap</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">as_srgb</span><span class="p">);</span>
 </code></pre></div>
 
 
-<p>Creates a texture from an image.
-Internally use srgb lookup if as_srgb and filtering if filter.
-Returns the texture id.</p>
-<h4>Function update_texture()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_texture</span><span class="p">(</span>
-    <span class="n">gl_texture</span><span class="o">&amp;</span> <span class="n">txt</span><span class="p">,</span> <span class="kt">int</span> <span class="n">w</span><span class="p">,</span> <span class="kt">int</span> <span class="n">h</span><span class="p">,</span> <span class="kt">int</span> <span class="n">nc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">float</span><span class="o">*</span> <span class="n">pixels</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Updates the texture tid with new image data.</p>
-<h4>Function update_texture()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_texture</span><span class="p">(</span>
-    <span class="n">gl_texture</span><span class="o">&amp;</span> <span class="n">txt</span><span class="p">,</span> <span class="kt">int</span> <span class="n">w</span><span class="p">,</span> <span class="kt">int</span> <span class="n">h</span><span class="p">,</span> <span class="kt">int</span> <span class="n">nc</span><span class="p">,</span> <span class="k">const</span> <span class="kt">unsigned</span> <span class="kt">char</span><span class="o">*</span> <span class="n">pixels</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Updates the texture tid with new image data.</p>
-<h4>Function update_texture()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_texture</span><span class="p">(</span><span class="n">gl_texture</span><span class="o">&amp;</span> <span class="n">txt</span><span class="p">,</span> <span class="k">const</span> <span class="n">image4f</span><span class="o">&amp;</span> <span class="n">img</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Updates the texture tid with new image data.</p>
-<h4>Function update_texture()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_texture</span><span class="p">(</span><span class="n">gl_texture</span><span class="o">&amp;</span> <span class="n">txt</span><span class="p">,</span> <span class="k">const</span> <span class="n">image4b</span><span class="o">&amp;</span> <span class="n">img</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Updates the texture tid with new image data.</p>
+<p>Creates a texture from an image. Convenience wrapper to update_texture().</p>
 <h4>Function bind_texture()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kt">void</span> <span class="nf">bind_texture</span><span class="p">(</span><span class="k">const</span> <span class="n">gl_texture</span><span class="o">&amp;</span> <span class="n">txt</span><span class="p">,</span> <span class="n">uint</span> <span class="n">unit</span><span class="p">);</span>
 </code></pre></div>
@@ -8706,146 +8823,85 @@ Returns the texture id.</p>
 
 
 <p>OpenGL vertex/element buffer</p>
-<h4>Function make_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_vertex_buffer</span> <span class="nf">make_vertex_buffer</span><span class="p">(</span>
-    <span class="kt">int</span> <span class="n">num</span><span class="p">,</span> <span class="kt">int</span> <span class="n">ncomp</span><span class="p">,</span> <span class="k">const</span> <span class="kt">float</span><span class="o">*</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
-<h4>Function make_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_vertex_buffer</span> <span class="nf">make_vertex_buffer</span><span class="p">(</span>
-    <span class="kt">int</span> <span class="n">num</span><span class="p">,</span> <span class="kt">int</span> <span class="n">ncomp</span><span class="p">,</span> <span class="k">const</span> <span class="kt">int</span><span class="o">*</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
-<h4>Function make_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_vertex_buffer</span> <span class="nf">make_vertex_buffer</span><span class="p">(</span>
-    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
-<h4>Function make_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_vertex_buffer</span> <span class="nf">make_vertex_buffer</span><span class="p">(</span>
-    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2f</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
-<h4>Function make_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_vertex_buffer</span> <span class="nf">make_vertex_buffer</span><span class="p">(</span>
-    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3f</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
-<h4>Function make_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_vertex_buffer</span> <span class="nf">make_vertex_buffer</span><span class="p">(</span>
-    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4f</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
-<h4>Function make_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_vertex_buffer</span> <span class="nf">make_vertex_buffer</span><span class="p">(</span>
-    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
-<h4>Function make_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_vertex_buffer</span> <span class="nf">make_vertex_buffer</span><span class="p">(</span>
-    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
-<h4>Function make_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_vertex_buffer</span> <span class="nf">make_vertex_buffer</span><span class="p">(</span>
-    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
-<h4>Function make_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_vertex_buffer</span> <span class="nf">make_vertex_buffer</span><span class="p">(</span>
-    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
 <h4>Function update_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
-    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="kt">int</span> <span class="n">num</span><span class="p">,</span> <span class="kt">int</span> <span class="n">ncomp</span><span class="p">,</span> <span class="k">const</span> <span class="kt">float</span><span class="o">*</span> <span class="n">values</span><span class="p">);</span>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span><span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="kt">int</span> <span class="n">num</span><span class="p">,</span> <span class="kt">int</span> <span class="n">ncomp</span><span class="p">,</span>
+    <span class="k">const</span> <span class="kt">float</span><span class="o">*</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Updates the buffer with new data.</p>
+<h4>Function update_vertex_buffer()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span><span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="kt">int</span> <span class="n">num</span><span class="p">,</span> <span class="kt">int</span> <span class="n">ncomp</span><span class="p">,</span>
+    <span class="k">const</span> <span class="kt">int</span><span class="o">*</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
 </code></pre></div>
 
 
 <p>Updates the buffer with new data.</p>
 <h4>Function update_vertex_buffer()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
-    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="kt">int</span> <span class="n">num</span><span class="p">,</span> <span class="kt">int</span> <span class="n">ncomp</span><span class="p">,</span> <span class="k">const</span> <span class="kt">int</span><span class="o">*</span> <span class="n">values</span><span class="p">);</span>
+    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Updates the bufferwith new data.</p>
+<h4>Function update_vertex_buffer()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
+    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2f</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Updates the bufferwith new data.</p>
+<h4>Function update_vertex_buffer()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
+    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3f</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Updates the bufferwith new data.</p>
+<h4>Function update_vertex_buffer()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
+    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4f</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Updates the bufferwith new data.</p>
+<h4>Function update_vertex_buffer()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
+    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Updates the bufferwith new data.</p>
+<h4>Function update_vertex_buffer()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
+    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Updates the bufferwith new data.</p>
+<h4>Function update_vertex_buffer()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
+    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Updates the bufferwith new data.</p>
+<h4>Function update_vertex_buffer()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
+    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
 </code></pre></div>
 
 
 <p>Updates the buffer with new data.</p>
-<h4>Function update_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
-    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">);</span>
+<h4>Function make_vertex_buffer()</h4>
+<div class="codehilite"><pre><code><span></span><span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span> <span class="n">T</span><span class="o">&gt;</span>
+<span class="kr">inline</span> <span class="n">gl_vertex_buffer</span> <span class="n">make_vertex_buffer</span><span class="p">(</span>
+    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
 </code></pre></div>
 
 
-<p>Updates the buffer bid with new data.</p>
-<h4>Function update_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
-    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2f</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Updates the buffer bid with new data.</p>
-<h4>Function update_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
-    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3f</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Updates the buffer bid with new data.</p>
-<h4>Function update_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
-    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4f</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Updates the buffer bid with new data.</p>
-<h4>Function update_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
-    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Updates the buffer bid with new data.</p>
-<h4>Function update_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
-    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Updates the buffer bid with new data.</p>
-<h4>Function update_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
-    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Updates the buffer bid with new data.</p>
-<h4>Function update_vertex_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_vertex_buffer</span><span class="p">(</span>
-    <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Updates the buffer bid with new data.</p>
+<p>Make a buffer with new data. A convenience wrapper to
+update_vertex_buffer().</p>
 <h4>Function bind_vertex_buffer()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kt">void</span> <span class="nf">bind_vertex_buffer</span><span class="p">(</span><span class="k">const</span> <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="n">uint</span> <span class="n">vattr</span><span class="p">);</span>
 </code></pre></div>
@@ -8888,76 +8944,50 @@ Returns the texture id.</p>
 
 
 <p>OpenGL vertex/element buffer</p>
-<h4>Function make_element_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_element_buffer</span> <span class="nf">make_element_buffer</span><span class="p">(</span>
-    <span class="kt">int</span> <span class="n">num</span><span class="p">,</span> <span class="kt">int</span> <span class="n">ncomp</span><span class="p">,</span> <span class="k">const</span> <span class="kt">int</span><span class="o">*</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
-<h4>Function make_element_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_element_buffer</span> <span class="nf">make_element_buffer</span><span class="p">(</span>
-    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
-<h4>Function make_element_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_element_buffer</span> <span class="nf">make_element_buffer</span><span class="p">(</span>
-    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
-<h4>Function make_element_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_element_buffer</span> <span class="nf">make_element_buffer</span><span class="p">(</span>
-    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
-<h4>Function make_element_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="n">gl_element_buffer</span> <span class="nf">make_element_buffer</span><span class="p">(</span>
-    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
-</code></pre></div>
-
-
-<p>Creates a buffer.</p>
 <h4>Function update_element_buffer()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_element_buffer</span><span class="p">(</span>
-    <span class="n">gl_element_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="kt">int</span> <span class="n">num</span><span class="p">,</span> <span class="kt">int</span> <span class="n">ncomp</span><span class="p">,</span> <span class="k">const</span> <span class="kt">int</span><span class="o">*</span> <span class="n">values</span><span class="p">);</span>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_element_buffer</span><span class="p">(</span><span class="n">gl_element_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="kt">int</span> <span class="n">num</span><span class="p">,</span> <span class="kt">int</span> <span class="n">ncomp</span><span class="p">,</span>
+    <span class="k">const</span> <span class="kt">int</span><span class="o">*</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
 </code></pre></div>
 
 
 <p>Updates the buffer with new data.</p>
 <h4>Function update_element_buffer()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_element_buffer</span><span class="p">(</span>
-    <span class="n">gl_element_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">);</span>
+    <span class="n">gl_element_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
 </code></pre></div>
 
 
-<p>Updates the buffer bid with new data.</p>
+<p>Updates the bufferwith new data.</p>
 <h4>Function update_element_buffer()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_element_buffer</span><span class="p">(</span>
-    <span class="n">gl_element_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">);</span>
+    <span class="n">gl_element_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec2i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
 </code></pre></div>
 
 
-<p>Updates the buffer bid with new data.</p>
+<p>Updates the bufferwith new data.</p>
 <h4>Function update_element_buffer()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_element_buffer</span><span class="p">(</span>
-    <span class="n">gl_element_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">);</span>
+    <span class="n">gl_element_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec3i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
 </code></pre></div>
 
 
-<p>Updates the buffer bid with new data.</p>
+<p>Updates the bufferwith new data.</p>
 <h4>Function update_element_buffer()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">update_element_buffer</span><span class="p">(</span>
-    <span class="n">gl_element_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">);</span>
+    <span class="n">gl_element_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">,</span> <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">vec4i</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
 </code></pre></div>
 
 
-<p>Updates the buffer bid with new data.</p>
+<p>Updates the bufferwith new data.</p>
+<h4>Function make_element_buffer()</h4>
+<div class="codehilite"><pre><code><span></span><span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span> <span class="n">T</span><span class="o">&gt;</span>
+<span class="kr">inline</span> <span class="n">gl_element_buffer</span> <span class="n">make_element_buffer</span><span class="p">(</span>
+    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;&amp;</span> <span class="n">values</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">dynamic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Make a buffer with new data. A convenience wrapper to
+update_velement_buffer().</p>
 <h4>Function draw_elems()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kt">void</span> <span class="nf">draw_elems</span><span class="p">(</span><span class="k">const</span> <span class="n">gl_element_buffer</span><span class="o">&amp;</span> <span class="n">buf</span><span class="p">);</span>
 </code></pre></div>
@@ -9355,6 +9385,40 @@ is either a buffer bid or a single value def
 
 <p>Draw an texture tid of size img_w, img_h on a window of size win_w,
 win_h with top-left corner at ox, oy with a zoom zoom.</p>
+<h4>Struct gl_stdimage_params</h4>
+<div class="codehilite"><pre><code><span></span><span class="k">struct</span> <span class="n">gl_stdimage_params</span> <span class="p">{</span>
+    <span class="n">vec2i</span> <span class="n">win_size</span> <span class="o">=</span> <span class="p">{</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">};</span>
+    <span class="n">vec2f</span> <span class="n">offset</span> <span class="o">=</span> <span class="p">{</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">};</span>
+    <span class="kt">float</span> <span class="n">zoom</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="kt">float</span> <span class="n">exposure</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="kt">float</span> <span class="n">gamma</span> <span class="o">=</span> <span class="mf">2.2f</span><span class="p">;</span>
+    <span class="kt">bool</span> <span class="n">filmic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">;</span>
+    <span class="n">vec4f</span> <span class="n">background</span> <span class="o">=</span> <span class="n">zero4f</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+
+
+<p>Params for  gl_stdimage_program drawing. This is just a way to pack all
+params together for the above functions.</p>
+<ul>
+<li>Members:<ul>
+<li>win_size:      window size</li>
+<li>offset:      image offset</li>
+<li>zoom:      image zoom</li>
+<li>exposure:      tonemap exposure</li>
+<li>gamma:      tonemap gamma</li>
+<li>filmic:      tonemap filmic</li>
+<li>background:      image background</li>
+</ul>
+</li>
+</ul>
+<h4>Function draw_image()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">draw_image</span><span class="p">(</span><span class="n">gl_stdimage_program</span><span class="o">&amp;</span> <span class="n">prog</span><span class="p">,</span> <span class="k">const</span> <span class="n">gl_texture</span><span class="o">&amp;</span> <span class="n">txt</span><span class="p">,</span>
+    <span class="k">const</span> <span class="n">gl_stdimage_params</span><span class="o">&amp;</span> <span class="n">params</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">clear_background</span> <span class="o">=</span> <span class="nb">true</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>As above but includes an exposure/gamma correction.</p>
 <h4>Struct gl_stdsurface_program</h4>
 <div class="codehilite"><pre><code><span></span><span class="k">struct</span> <span class="n">gl_stdsurface_program</span> <span class="p">{</span>
 </code></pre></div>
@@ -9403,7 +9467,7 @@ preview.</p>
 ambient illumination amb.</p>
 <h4>Function begin_stdsurface_shape()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">begin_stdsurface_shape</span><span class="p">(</span>
-    <span class="n">gl_stdsurface_program</span><span class="o">&amp;</span> <span class="n">prog</span><span class="p">,</span> <span class="k">const</span> <span class="n">mat4f</span><span class="o">&amp;</span> <span class="n">xform</span><span class="p">);</span>
+    <span class="n">gl_stdsurface_program</span><span class="o">&amp;</span> <span class="n">prog</span><span class="p">,</span> <span class="k">const</span> <span class="n">mat4f</span><span class="o">&amp;</span> <span class="n">xform</span><span class="p">,</span> <span class="kt">float</span> <span class="n">normal_offset</span> <span class="o">=</span> <span class="mi">0</span><span class="p">);</span>
 </code></pre></div>
 
 
@@ -9414,6 +9478,13 @@ ambient illumination amb.</p>
 
 
 <p>End shade drawing.</p>
+<h4>Function set_stdsurface_normaloffset()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">set_stdsurface_normaloffset</span><span class="p">(</span>
+    <span class="n">gl_stdsurface_program</span><span class="o">&amp;</span> <span class="n">prog</span><span class="p">,</span> <span class="kt">float</span> <span class="n">normal_offset</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Sets normal offset.</p>
 <h4>Function set_stdsurface_highlight()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">set_stdsurface_highlight</span><span class="p">(</span>
     <span class="n">gl_stdsurface_program</span><span class="o">&amp;</span> <span class="n">prog</span><span class="p">,</span> <span class="k">const</span> <span class="n">vec4f</span><span class="o">&amp;</span> <span class="n">highlight</span><span class="p">);</span>
@@ -9438,6 +9509,13 @@ correspoinding XXX_txt variables. Sets also normal and occlusion
 maps. Works for points/lines/triangles (diffuse for points,
 Kajiya-Kay for lines, GGX/Phong for triangles).
 Material type matches the scene material type.</p>
+<h4>Function set_stdsurface_constmaterial()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">set_stdsurface_constmaterial</span><span class="p">(</span>
+    <span class="n">gl_stdsurface_program</span><span class="o">&amp;</span> <span class="n">prog</span><span class="p">,</span> <span class="k">const</span> <span class="n">vec3f</span><span class="o">&amp;</span> <span class="n">ke</span><span class="p">,</span> <span class="kt">float</span> <span class="n">op</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Set constant material values with emission ke.</p>
 <h4>Function set_stdsurface_vert()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">set_stdsurface_vert</span><span class="p">(</span><span class="n">gl_stdsurface_program</span><span class="o">&amp;</span> <span class="n">prog</span><span class="p">,</span>
     <span class="k">const</span> <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">pos</span><span class="p">,</span> <span class="k">const</span> <span class="n">gl_vertex_buffer</span><span class="o">&amp;</span> <span class="n">norm</span><span class="p">,</span>
@@ -9487,11 +9565,15 @@ public API.</p>
     <span class="kt">bool</span> <span class="n">filmic</span> <span class="o">=</span> <span class="nb">false</span><span class="p">;</span>
     <span class="kt">bool</span> <span class="n">wireframe</span> <span class="o">=</span> <span class="nb">false</span><span class="p">;</span>
     <span class="kt">bool</span> <span class="n">edges</span> <span class="o">=</span> <span class="nb">false</span><span class="p">;</span>
+    <span class="kt">float</span> <span class="n">edge_offset</span> <span class="o">=</span> <span class="mf">0.01f</span><span class="p">;</span>
     <span class="kt">bool</span> <span class="n">cutout</span> <span class="o">=</span> <span class="nb">false</span><span class="p">;</span>
     <span class="kt">bool</span> <span class="n">camera_lights</span> <span class="o">=</span> <span class="nb">false</span><span class="p">;</span>
     <span class="n">vec4f</span> <span class="n">background</span> <span class="o">=</span> <span class="p">{</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">};</span>
     <span class="n">vec3f</span> <span class="n">ambient</span> <span class="o">=</span> <span class="p">{</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">};</span>
-    <span class="kt">void</span><span class="o">*</span> <span class="n">hilighted</span> <span class="o">=</span> <span class="k">nullptr</span><span class="p">;</span>
+    <span class="kt">void</span><span class="o">*</span> <span class="n">highlighted</span> <span class="o">=</span> <span class="k">nullptr</span><span class="p">;</span>
+    <span class="n">vec3f</span> <span class="n">highlight_color</span> <span class="o">=</span> <span class="p">{</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">};</span>
+    <span class="n">vec3f</span> <span class="n">edge_color</span> <span class="o">=</span> <span class="p">{</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">};</span>
+    <span class="kt">bool</span> <span class="n">cull_backface</span> <span class="o">=</span> <span class="nb">true</span><span class="p">;</span>
 <span class="p">}</span>
 </code></pre></div>
 
@@ -9507,11 +9589,15 @@ public API.</p>
 <li>filmic:      image filmic tonemapping</li>
 <li>wireframe:      draw as wireframe</li>
 <li>edges:      draw with overlaid edges</li>
+<li>edge_offset:      offset for edges</li>
 <li>cutout:      draw with an alpha cutout for binary transparency</li>
 <li>camera_lights:      camera light mode</li>
 <li>background:      window background</li>
 <li>ambient:      ambient illumination</li>
-<li>hilighted:      highlighted object</li>
+<li>highlighted:      highlighted object</li>
+<li>highlight_color:      highlight color</li>
+<li>edge_color:      edge color</li>
+<li>cull_backface:      cull back back</li>
 </ul>
 </li>
 </ul>
@@ -9522,8 +9608,9 @@ public API.</p>
 
 <p>Initialize gl_stdsurface_program draw state</p>
 <h4>Function update_stdsurface_state()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kt">void</span> <span class="nf">update_stdsurface_state</span><span class="p">(</span><span class="n">gl_stdsurface_state</span><span class="o">*</span> <span class="n">st</span><span class="p">,</span> <span class="k">const</span> <span class="n">scene</span><span class="o">*</span> <span class="n">scn</span><span class="p">,</span>
-    <span class="k">const</span> <span class="n">gl_stdsurface_params</span><span class="o">&amp;</span> <span class="n">params</span><span class="p">);</span>
+<div class="codehilite"><pre><code><span></span><span class="kt">void</span> <span class="n">update_stdsurface_state</span><span class="p">(</span><span class="n">gl_stdsurface_state</span><span class="o">*</span> <span class="n">st</span><span class="p">,</span> <span class="k">const</span> <span class="n">scene</span><span class="o">*</span> <span class="n">scn</span><span class="p">,</span>
+    <span class="k">const</span> <span class="n">gl_stdsurface_params</span><span class="o">&amp;</span> <span class="n">params</span><span class="p">,</span>
+    <span class="k">const</span> <span class="n">unordered_set</span><span class="o">&lt;</span><span class="n">shape</span><span class="o">*&gt;&amp;</span> <span class="n">refresh_shapes</span> <span class="o">=</span><span class="p">;</span>
 </code></pre></div>
 
 
@@ -9684,7 +9771,8 @@ and textures on the GPU.</p>
 
 <p>Handle camera navigation.</p>
 <h4>Function init_widgets()</h4>
-<div class="codehilite"><pre><code><span></span><span class="kt">void</span> <span class="nf">init_widgets</span><span class="p">(</span><span class="n">gl_window</span><span class="o">*</span> <span class="n">win</span><span class="p">);</span>
+<div class="codehilite"><pre><code><span></span><span class="kt">void</span> <span class="nf">init_widgets</span><span class="p">(</span>
+    <span class="n">gl_window</span><span class="o">*</span> <span class="n">win</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">light_style</span> <span class="o">=</span> <span class="nb">false</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">extra_font</span> <span class="o">=</span> <span class="nb">true</span><span class="p">);</span>
 </code></pre></div>
 
 
@@ -9875,6 +9963,21 @@ and textures on the GPU.</p>
 
 <p>Enum widget</p>
 <h4>Function draw_value_widget()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kt">bool</span> <span class="nf">draw_value_widget</span><span class="p">(</span><span class="n">gl_window</span><span class="o">*</span> <span class="n">win</span><span class="p">,</span> <span class="k">const</span> <span class="n">string</span><span class="o">&amp;</span> <span class="n">lbl</span><span class="p">,</span> <span class="kt">void</span><span class="o">*&amp;</span> <span class="n">val</span><span class="p">,</span>
+    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">pair</span><span class="o">&lt;</span><span class="n">string</span><span class="p">,</span> <span class="kt">void</span><span class="o">*&gt;&gt;&amp;</span> <span class="n">labels</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Enum widget</p>
+<h4>Function draw_value_widget()</h4>
+<div class="codehilite"><pre><code><span></span><span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span> <span class="n">T</span><span class="o">&gt;</span>
+<span class="kr">inline</span> <span class="kt">bool</span> <span class="n">draw_value_widget</span><span class="p">(</span><span class="n">gl_window</span><span class="o">*</span> <span class="n">win</span><span class="p">,</span> <span class="k">const</span> <span class="n">string</span><span class="o">&amp;</span> <span class="n">lbl</span><span class="p">,</span> <span class="n">T</span><span class="o">*&amp;</span> <span class="n">val</span><span class="p">,</span>
+    <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">pair</span><span class="o">&lt;</span><span class="n">string</span><span class="p">,</span> <span class="n">T</span><span class="o">*&gt;&gt;&amp;</span> <span class="n">labels</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Enum widget</p>
+<h4>Function draw_value_widget()</h4>
 <div class="codehilite"><pre><code><span></span><span class="k">template</span> <span class="o">&lt;</span><span class="k">typename</span> <span class="n">T</span><span class="o">&gt;</span>
 <span class="kr">inline</span> <span class="kt">bool</span> <span class="n">draw_value_widget</span><span class="p">(</span><span class="n">gl_window</span><span class="o">*</span> <span class="n">win</span><span class="p">,</span> <span class="k">const</span> <span class="n">string</span><span class="o">&amp;</span> <span class="n">lbl</span><span class="p">,</span> <span class="n">T</span><span class="o">&amp;</span> <span class="n">val</span><span class="p">,</span>
     <span class="k">const</span> <span class="n">vector</span><span class="o">&lt;</span><span class="n">pair</span><span class="o">&lt;</span><span class="n">string</span><span class="p">,</span> <span class="n">T</span><span class="o">&gt;&gt;&amp;</span> <span class="n">labels</span><span class="p">);</span>
@@ -10009,6 +10112,21 @@ and textures on the GPU.</p>
 
 
 <p>Tonemapping widgets</p>
+<h4>Function draw_imageview_widgets()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">draw_imageview_widgets</span><span class="p">(</span><span class="n">gl_window</span><span class="o">*</span> <span class="n">win</span><span class="p">,</span> <span class="k">const</span> <span class="n">string</span><span class="o">&amp;</span> <span class="n">lbl</span><span class="p">,</span>
+    <span class="n">gl_stdimage_params</span><span class="o">&amp;</span> <span class="n">params</span><span class="p">,</span> <span class="kt">bool</span> <span class="n">show_tonemap</span> <span class="o">=</span> <span class="nb">true</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Image view widgets</p>
+<h4>Function draw_imageinspect_widgets()</h4>
+<div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">void</span> <span class="nf">draw_imageinspect_widgets</span><span class="p">(</span><span class="n">gl_window</span><span class="o">*</span> <span class="n">win</span><span class="p">,</span> <span class="k">const</span> <span class="n">string</span><span class="o">&amp;</span> <span class="n">lbl</span><span class="p">,</span>
+    <span class="k">const</span> <span class="n">image4f</span><span class="o">&amp;</span> <span class="n">hdr</span><span class="p">,</span> <span class="k">const</span> <span class="n">image4b</span><span class="o">&amp;</span> <span class="n">ldr</span><span class="p">,</span> <span class="k">const</span> <span class="n">vec2f</span><span class="o">&amp;</span> <span class="n">mouse_pos</span><span class="p">,</span>
+    <span class="k">const</span> <span class="n">gl_stdimage_params</span><span class="o">&amp;</span> <span class="n">params</span><span class="p">);</span>
+</code></pre></div>
+
+
+<p>Image inspection widgets</p>
 <h4>Function draw_camera_widget()</h4>
 <div class="codehilite"><pre><code><span></span><span class="kr">inline</span> <span class="kt">bool</span> <span class="nf">draw_camera_widget</span><span class="p">(</span>
     <span class="n">gl_window</span><span class="o">*</span> <span class="n">win</span><span class="p">,</span> <span class="k">const</span> <span class="n">string</span><span class="o">&amp;</span> <span class="n">lbl</span><span class="p">,</span> <span class="n">scene</span><span class="o">*</span> <span class="n">scn</span><span class="p">,</span> <span class="kt">int</span><span class="o">&amp;</span> <span class="n">cam_idx</span><span class="p">);</span>

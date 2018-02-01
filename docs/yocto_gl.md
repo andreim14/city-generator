@@ -29,6 +29,7 @@ and released under the MIT license. Features include:
 - simple logger and thread pool
 - path tracer supporting surfaces and hairs, GGX and MIS
 - support for loading and saving Wavefront OBJ and Khronos glTF
+- support for loading Bezier curves from SVG
 - OpenGL utilities to manage textures, buffers and prograrms
 - OpenGL shader for image viewing and GGX microfacet and hair rendering
 
@@ -87,8 +88,11 @@ If these features are useful, then the implementation files need to
 included in the manner described by the respective libraries. To simplify
 builds, we provice a file that builds these libraries, `stb_image.cpp`.
 
-To support Khronos glTF, Yocto/GL depends on `json.hpp`. These feature can
+To support Khronos glTF, Yocto/GL depends on `json.hpp`. This feature can
 be disabled by defining YGL_GLTF to 0 before including this file.
+
+To support SVG, Yocto/GL depends on `nanosvg.h`. This feature can
+be disabled by defining YGL_SVG to 0 before including this file.
 
 OpenGL utilities include the OpenGL libaries, use GLEW on Windows/Linux,
 GLFW for windows handling and Dear ImGui for UI support.
@@ -235,11 +239,13 @@ manipulation useful to support scene viewing and path tracing.
 12. convert quads to triangles with `convert_quads_to_triangles()`
 13. convert face varying to vertex shared representations with
     `convert_face_varying()`
-14. subdivide elements by edge splits with `subdivide_elems()` and
-    `subdivide_vert()`
-15. Catmull-Clark subdivision surface with `subdivide_catmullclark()` with
-    support for edge and vertex creasing
-16. example shapes: `make_cube()`, `make_uvsphere()`, `make_uvhemisphere()`,
+14. subdivide elements by edge splits with `subdivide_elems_linear()` and
+    `subdivide_vert_linear()`
+15. Catmull-Clark subdivision surface with `subdivide_vert_catmullclark()`
+    with support for edge and vertex creasing
+16. subdvide Bezier with `subdivide_bezier_recursive()` and
+    `subdivide_vert_bezier()`
+17. example shapes: `make_cube()`, `make_uvsphere()`, `make_uvhemisphere()`,
     `make_uvquad()`, `make_uvcube()`, `make_fvcube()`, `make_hair()`,
     `make_suzanne()`
 
@@ -570,6 +576,7 @@ and user end.
 Here we mark only major features added to the library. Small refactorings
 and bug fixes are reported here.
 
+- v 0.2.0: various bug fixes and improvement to OpenGL drawing and widgets
 - v 0.1.0: initial release after refactoring
 
 ## API Documentation
@@ -2567,6 +2574,14 @@ inline ostream& operator<<(ostream& os, const vec4i& a);
 
 stream write
 
+#### Function operator < <()
+
+~~~ .cpp
+inline ostream& operator<<(ostream& os, const vec4b& a);
+~~~
+
+stream write
+
 #### Function operator \> \>()
 
 ~~~ .cpp
@@ -2611,6 +2626,14 @@ stream read
 
 ~~~ .cpp
 inline istream& operator>>(istream& is, vec4i& a);
+~~~
+
+stream read
+
+#### Function operator \> \>()
+
+~~~ .cpp
+inline istream& operator>>(istream& is, vec4b& a);
 ~~~
 
 stream read
@@ -5301,6 +5324,14 @@ inline vector<vec3i> convert_quads_to_triangles(
 Convert quads to triangles with a diamond-like topology.
 Quads have to be consecutive one row after another.
 
+#### Function convert_bezier_to_lines()
+
+~~~ .cpp
+inline vector<vec2i> convert_bezier_to_lines(const vector<vec4i>& beziers);
+~~~
+
+Convert beziers to lines using 3 lines for each bezier.
+
 #### Function convert_face_varying()
 
 ~~~ .cpp
@@ -5314,43 +5345,64 @@ convert_face_varying(const vector<vec4i>& quads_pos,
 Convert face varying data to single primitives. Returns the quads indices
 and filled vectors for pos, norm and texcoord.
 
-#### Function subdivide_elems()
+#### Function subdivide_elems_linear()
 
 ~~~ .cpp
 inline tuple<vector<vec2i>, vector<vec3i>, vector<vec4i>, vector<vec2i>,
     vector<vec4i>>
-subdivide_elems(const vector<vec2i>& lines, const vector<vec3i>& triangles,
-    const vector<vec4i>& quads, int nverts);
+subdivide_elems_linear(const vector<vec2i>& lines,
+    const vector<vec3i>& triangles, const vector<vec4i>& quads, int nverts);
 ~~~
 
 Tesselate lines, triangles and quads by spolitting edges.
 Returns the tesselated elements and dictionaries for vertex calculations.
 
-#### Function subdivide_vert()
+#### Function subdivide_vert_linear()
 
 ~~~ .cpp
 template <typename T>
-inline vector<T> subdivide_vert(const vector<T>& vert,
+inline vector<T> subdivide_vert_linear(const vector<T>& vert,
     const vector<vec2i>& edges, const vector<vec4i>& faces,
     bool normalized = false);
 ~~~
 
 Subdivide vertex properties given the maps
 
-#### Function subdivide_catmullclark()
+#### Function subdivide_vert_catmullclark()
 
 ~~~ .cpp
 template <typename T>
-inline vector<T> subdivide_catmullclark(const vector<vec4i>& quads,
+inline vector<T> subdivide_vert_catmullclark(const vector<vec4i>& quads,
     const vector<T>& vert, const vector<vec2i>& crease_tlines,
     const vector<int>& crease_tpoints, bool normalized = false);
 ~~~
 
 Performs the smoothing step of Catmull-Clark. Start with a tesselate quad
-mesh obtained with subdivide_elems() and subdivide_vert(). To handle open
-meshes with boundary, get the boundary from make_boundary_edge() and pass it
-as crease_lines. To fix the boundary entirely, just get the boundary
-vertices and pass it as creases.
+mesh obtained with subdivide_elems_linear() and subdivide_vert_linear(). To
+handle open meshes with boundary, get the boundary from make_boundary_edge()
+and pass it as crease_lines. To fix the boundary entirely, just get the
+boundary vertices and pass it as creases.
+
+#### Function subdivide_bezier_recursive()
+
+~~~ .cpp
+inline tuple<vector<vec4i>, vector<int>, vector<vec4i>>
+subdivide_bezier_recursive(const vector<vec4i>& beziers, int nverts);
+~~~
+
+Subdivide bezier recursive by splitting each segment into two in the middle.
+Returns the tesselated elements and dictionaries for vertex calculations.
+
+#### Function subdivide_vert_bezier()
+
+~~~ .cpp
+template <typename T>
+inline vector<T> subdivide_vert_bezier(const vector<T>& vert,
+    const vector<int>& verts, const vector<vec4i>& segments,
+    bool normalized = false);
+~~~
+
+Subdivide vertex properties given the maps
 
 #### Function make_uvquads()
 
@@ -5635,6 +5687,14 @@ make_uvcutsphere(int level, float z, bool flipped = false);
 
 Make a cutout sphere. This is not watertight. Returns quads, pos, norm,
 texcoord.
+
+#### Function make_bezier_circle()
+
+~~~ .cpp
+tuple<vector<vec4i>, vector<vec3f>> make_bezier_circle();
+~~~
+
+Make a bezier circle. Returns bezier, pos.
 
 #### Function make_hair()
 
@@ -6934,6 +6994,7 @@ struct shape {
     vector<vec4i> quads_pos;
     vector<vec4i> quads_norm;
     vector<vec4i> quads_texcoord;
+    vector<vec4i> beziers;
     vector<vec3f> pos;
     vector<vec3f> norm;
     vector<vec2f> texcoord;
@@ -6941,6 +7002,8 @@ struct shape {
     vector<vec4f> color;
     vector<float> radius;
     vector<vec4f> tangsp;
+    int subdivision_level = 0;
+    bool subdivision_catmullclark = false;
     vector<float> elem_cdf;
     bvh_tree* bvh = nullptr;
     bbox3f bbox = invalid_bbox3f;
@@ -6961,6 +7024,7 @@ May contain only one of the points/lines/triangles/quads.
     - quads_pos:      face-varying indices for position
     - quads_norm:      face-varying indices for normal
     - quads_texcoord:      face-varying indices for texcoord
+    - beziers:      bezier
     - pos:      per-vertex position (3 float)
     - norm:      per-vertex normals (3 float)
     - texcoord:      per-vertex texcoord (2 float)
@@ -6968,6 +7032,8 @@ May contain only one of the points/lines/triangles/quads.
     - color:      per-vertex color (4 float)
     - radius:      per-vertex radius (1 float)
     - tangsp:      per-vertex tangent space (4 float)
+    - subdivision_level:      number of times to subdivide
+    - subdivision_catmullclark:      whether to use Catmull-Clark subdivision
     - elem_cdf:      element CDF for sampling
     - bvh:      BVH
     - bbox:      bounding box (needs to be updated explicitly)
@@ -7167,10 +7233,10 @@ inline vec4f eval_texture(const texture_info& info, const vec2f& texcoord,
 
 Evaluate a texture
 
-#### Function subdivide_shape()
+#### Function subdivide_shape_once()
 
 ~~~ .cpp
-inline void subdivide_shape(shape* shp, bool subdiv = false);
+inline void subdivide_shape_once(shape* shp, bool subdiv = false);
 ~~~
 
 Subdivides shape elements. Apply subdivision surface rules if subdivide
@@ -7187,7 +7253,9 @@ Facet a shape. Supports only non-face0varying shapes
 #### Function tesselate_shape()
 
 ~~~ .cpp
-inline void tesselate_shape(shape* shp);
+inline void tesselate_shape(shape* shp, bool subdivide,
+    bool facevarying_to_sharedvertex, bool quads_to_triangles,
+    bool bezier_to_lines);
 ~~~
 
 Tesselate a shape into basic primitives
@@ -7195,7 +7263,9 @@ Tesselate a shape into basic primitives
 #### Function tesselate_shapes()
 
 ~~~ .cpp
-inline void tesselate_shapes(scene* scn);
+inline void tesselate_shapes(scene* scn, bool subdivide,
+    bool facevarying_to_sharedvertex, bool quads_to_triangles,
+    bool bezier_to_lines);
 ~~~
 
 Tesselate scene shapes and update pointers
@@ -7877,7 +7947,8 @@ enum struct obj_element_type : uint16_t {
     point = 1,
     line = 2,
     face = 3,
-    tetra = 4,
+    bezier = 4,
+    tetra = 5,
 }
 ~~~
 
@@ -7887,6 +7958,7 @@ element type
     - point:      lists of points
     - line:      polylines
     - face:      polygon faces
+    - bezier:      bezier segments
     - tetra:      tetrahedrons
 
 
@@ -7915,6 +7987,8 @@ struct obj_group {
     string matname;
     string groupname;
     bool smoothing = true;
+    int subdivision_level = 0;
+    bool subdivision_catmullclark = false;
     vector<obj_vertex> verts;
     vector<obj_element> elems;
 }
@@ -7926,6 +8000,8 @@ Element group
     - matname:      material name
     - groupname:      group name
     - smoothing:      smoothing
+    - subdivision_level:      number of times to subdivide
+    - subdivision_catmullclark:      whether to use Catmull-Clark subdivision
     - verts:      element vertices
     - elems:      element faces
 
@@ -8195,6 +8271,7 @@ struct obj_shape {
     vector<int> points;
     vector<vec2i> lines;
     vector<vec3i> triangles;
+    vector<vec4i> bezier;
     vector<vec4i> tetras;
     vector<vec3f> pos;
     vector<vec3f> norm;
@@ -8212,6 +8289,7 @@ Shape. May contain only one of the points/lines/triangles.
     - points:      points
     - lines:      lines
     - triangles:      triangles
+    - bezier:      bezier
     - tetras:      tetrahedrons
     - pos:      per-vertex position (3 float)
     - norm:      per-vertex normals (3 float)
@@ -9331,6 +9409,68 @@ A view for gltf array buffers that allows for typed access.
     - geti():      get the c-th component of the idx-th element as integer
 
 
+#### Struct svg_path
+
+~~~ .cpp
+struct svg_path {
+    vector<vec2f> pos;
+}
+~~~
+
+Svg path
+
+- Members:
+    - pos:      Path vertices
+
+
+#### Struct svg_shape
+
+~~~ .cpp
+struct svg_shape {
+    vector<svg_path*> paths;
+    ~svg_shape(); 
+}
+~~~
+
+Svg shape
+
+- Members:
+    - paths:      Paths
+    - ~svg_shape():      Cleanup
+
+
+#### Struct svg_scene
+
+~~~ .cpp
+struct svg_scene {
+    vector<svg_shape*> shapes;
+    ~svg_scene(); 
+}
+~~~
+
+Svg scene
+
+- Members:
+    - shapes:      Shapes
+    - ~svg_scene():      Cleanup
+
+
+#### Function load_svg()
+
+~~~ .cpp
+svg_scene* load_svg(const string& filename);
+~~~
+
+Load SVG
+
+#### Function save_svg()
+
+~~~ .cpp
+void save_svg(const string& filename, const svg_scene* svg);
+~~~
+
+Save SVG
+
 #### Function startswith()
 
 ~~~ .cpp
@@ -9964,7 +10104,7 @@ Enable/disable depth test
 #### Function gl_enable_culling()
 
 ~~~ .cpp
-void gl_enable_culling(bool enabled);
+void gl_enable_culling(bool enabled, bool front = false, bool back = true);
 ~~~
 
 Enable/disable culling
@@ -10034,29 +10174,61 @@ struct gl_texture {
 
 Opengl texture object
 
-#### Function make_texture()
+#### Function update_texture()
 
 ~~~ .cpp
-inline gl_texture make_texture(int w, int h, int nc, const float* pixels,
-    bool linear, bool mipmap, bool as_float);
+inline void update_texture(gl_texture& txt, int w, int h, int nc,
+    const float* pixels, bool linear, bool mipmap, bool as_float);
 ~~~
 
-Creates a texture with pixels values of size w, h with nc number of
-components (1-4).
-Internally use float if as_float and filtering if filter.
-Returns the texture id.
+Updates a texture with pixels values of size w, h with nc number of
+components (1-4). Internally use float if as_float and filtering if filter.
 
-#### Function make_texture()
+#### Function update_texture()
 
 ~~~ .cpp
-inline gl_texture make_texture(int w, int h, int nc,
+inline void update_texture(gl_texture& txt, int w, int h, int nc,
     const unsigned char* pixels, bool linear, bool mipmap, bool as_srgb);
 ~~~
 
-Creates a texture with pixels values of size w, h with nc number of
-components (1-4).
-Internally use srgb lookup if as_srgb and filtering if filter.
-Returns the texture id.
+Updates a texture with pixels values of size w, h with nc number of
+components (1-4). Internally use float if as_float and filtering if filter.
+
+#### Function update_texture()
+
+~~~ .cpp
+inline void update_texture(gl_texture& txt, const image4f& img, bool linear,
+    bool mipmap, bool as_float);
+~~~
+
+Updates a texture with pixels values from an image.
+Internally use float if as_float and filtering if filter.
+
+#### Function update_texture()
+
+~~~ .cpp
+inline void update_texture(gl_texture& txt, const image4b& img, bool linear,
+    bool mipmap, bool as_srgb);
+~~~
+
+Updates a texture with pixels values from an image.
+Internally use float if as_float and filtering if filter.
+
+#### Function update_texture()
+
+~~~ .cpp
+inline void update_texture(gl_texture& txt, const image4f& img);
+~~~
+
+Updates a texture with pixels values from an image.
+
+#### Function update_texture()
+
+~~~ .cpp
+inline void update_texture(gl_texture& txt, const image4b& img);
+~~~
+
+Updates a texture with pixels values from an image.
 
 #### Function make_texture()
 
@@ -10065,9 +10237,7 @@ inline gl_texture make_texture(
     const image4f& img, bool linear, bool mipmap, bool as_float);
 ~~~
 
-Creates a texture from an image.
-Internally use float if as_float and filtering if filter.
-Returns the texture id.
+Creates a texture from an image. Convenience wrapper to update_texture().
 
 #### Function make_texture()
 
@@ -10076,43 +10246,7 @@ inline gl_texture make_texture(
     const image4b& img, bool linear, bool mipmap, bool as_srgb);
 ~~~
 
-Creates a texture from an image.
-Internally use srgb lookup if as_srgb and filtering if filter.
-Returns the texture id.
-
-#### Function update_texture()
-
-~~~ .cpp
-inline void update_texture(
-    gl_texture& txt, int w, int h, int nc, const float* pixels);
-~~~
-
-Updates the texture tid with new image data.
-
-#### Function update_texture()
-
-~~~ .cpp
-inline void update_texture(
-    gl_texture& txt, int w, int h, int nc, const unsigned char* pixels);
-~~~
-
-Updates the texture tid with new image data.
-
-#### Function update_texture()
-
-~~~ .cpp
-inline void update_texture(gl_texture& txt, const image4f& img);
-~~~
-
-Updates the texture tid with new image data.
-
-#### Function update_texture()
-
-~~~ .cpp
-inline void update_texture(gl_texture& txt, const image4b& img);
-~~~
-
-Updates the texture tid with new image data.
+Creates a texture from an image. Convenience wrapper to update_texture().
 
 #### Function bind_texture()
 
@@ -10238,101 +10372,20 @@ struct gl_vertex_buffer {
 
 OpenGL vertex/element buffer
 
-#### Function make_vertex_buffer()
+#### Function update_vertex_buffer()
 
 ~~~ .cpp
-inline gl_vertex_buffer make_vertex_buffer(
-    int num, int ncomp, const float* values, bool dynamic = false);
+inline void update_vertex_buffer(gl_vertex_buffer& buf, int num, int ncomp,
+    const float* values, bool dynamic = false);
 ~~~
 
-Creates a buffer.
-
-#### Function make_vertex_buffer()
-
-~~~ .cpp
-inline gl_vertex_buffer make_vertex_buffer(
-    int num, int ncomp, const int* values, bool dynamic = false);
-~~~
-
-Creates a buffer.
-
-#### Function make_vertex_buffer()
-
-~~~ .cpp
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<float>& values, bool dynamic = false);
-~~~
-
-Creates a buffer.
-
-#### Function make_vertex_buffer()
-
-~~~ .cpp
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<vec2f>& values, bool dynamic = false);
-~~~
-
-Creates a buffer.
-
-#### Function make_vertex_buffer()
-
-~~~ .cpp
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<vec3f>& values, bool dynamic = false);
-~~~
-
-Creates a buffer.
-
-#### Function make_vertex_buffer()
-
-~~~ .cpp
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<vec4f>& values, bool dynamic = false);
-~~~
-
-Creates a buffer.
-
-#### Function make_vertex_buffer()
-
-~~~ .cpp
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<int>& values, bool dynamic = false);
-~~~
-
-Creates a buffer.
-
-#### Function make_vertex_buffer()
-
-~~~ .cpp
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<vec2i>& values, bool dynamic = false);
-~~~
-
-Creates a buffer.
-
-#### Function make_vertex_buffer()
-
-~~~ .cpp
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<vec3i>& values, bool dynamic = false);
-~~~
-
-Creates a buffer.
-
-#### Function make_vertex_buffer()
-
-~~~ .cpp
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<vec4i>& values, bool dynamic = false);
-~~~
-
-Creates a buffer.
+Updates the buffer with new data.
 
 #### Function update_vertex_buffer()
 
 ~~~ .cpp
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, int num, int ncomp, const float* values);
+inline void update_vertex_buffer(gl_vertex_buffer& buf, int num, int ncomp,
+    const int* values, bool dynamic = false);
 ~~~
 
 Updates the buffer with new data.
@@ -10341,82 +10394,84 @@ Updates the buffer with new data.
 
 ~~~ .cpp
 inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, int num, int ncomp, const int* values);
+    gl_vertex_buffer& buf, const vector<float>& values, bool dynamic = false);
+~~~
+
+Updates the bufferwith new data.
+
+#### Function update_vertex_buffer()
+
+~~~ .cpp
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<vec2f>& values, bool dynamic = false);
+~~~
+
+Updates the bufferwith new data.
+
+#### Function update_vertex_buffer()
+
+~~~ .cpp
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<vec3f>& values, bool dynamic = false);
+~~~
+
+Updates the bufferwith new data.
+
+#### Function update_vertex_buffer()
+
+~~~ .cpp
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<vec4f>& values, bool dynamic = false);
+~~~
+
+Updates the bufferwith new data.
+
+#### Function update_vertex_buffer()
+
+~~~ .cpp
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<int>& values, bool dynamic = false);
+~~~
+
+Updates the bufferwith new data.
+
+#### Function update_vertex_buffer()
+
+~~~ .cpp
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<vec2i>& values, bool dynamic = false);
+~~~
+
+Updates the bufferwith new data.
+
+#### Function update_vertex_buffer()
+
+~~~ .cpp
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<vec3i>& values, bool dynamic = false);
+~~~
+
+Updates the bufferwith new data.
+
+#### Function update_vertex_buffer()
+
+~~~ .cpp
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<vec4i>& values, bool dynamic = false);
 ~~~
 
 Updates the buffer with new data.
 
-#### Function update_vertex_buffer()
+#### Function make_vertex_buffer()
 
 ~~~ .cpp
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<float>& values);
+template <typename T>
+inline gl_vertex_buffer make_vertex_buffer(
+    const vector<T>& values, bool dynamic = false);
 ~~~
 
-Updates the buffer bid with new data.
-
-#### Function update_vertex_buffer()
-
-~~~ .cpp
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<vec2f>& values);
-~~~
-
-Updates the buffer bid with new data.
-
-#### Function update_vertex_buffer()
-
-~~~ .cpp
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<vec3f>& values);
-~~~
-
-Updates the buffer bid with new data.
-
-#### Function update_vertex_buffer()
-
-~~~ .cpp
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<vec4f>& values);
-~~~
-
-Updates the buffer bid with new data.
-
-#### Function update_vertex_buffer()
-
-~~~ .cpp
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<int>& values);
-~~~
-
-Updates the buffer bid with new data.
-
-#### Function update_vertex_buffer()
-
-~~~ .cpp
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<vec2i>& values);
-~~~
-
-Updates the buffer bid with new data.
-
-#### Function update_vertex_buffer()
-
-~~~ .cpp
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<vec3i>& values);
-~~~
-
-Updates the buffer bid with new data.
-
-#### Function update_vertex_buffer()
-
-~~~ .cpp
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<vec4i>& values);
-~~~
-
-Updates the buffer bid with new data.
+Make a buffer with new data. A convenience wrapper to
+update_vertex_buffer().
 
 #### Function bind_vertex_buffer()
 
@@ -10474,56 +10529,11 @@ struct gl_element_buffer {
 
 OpenGL vertex/element buffer
 
-#### Function make_element_buffer()
-
-~~~ .cpp
-inline gl_element_buffer make_element_buffer(
-    int num, int ncomp, const int* values, bool dynamic = false);
-~~~
-
-Creates a buffer.
-
-#### Function make_element_buffer()
-
-~~~ .cpp
-inline gl_element_buffer make_element_buffer(
-    const vector<int>& values, bool dynamic = false);
-~~~
-
-Creates a buffer.
-
-#### Function make_element_buffer()
-
-~~~ .cpp
-inline gl_element_buffer make_element_buffer(
-    const vector<vec2i>& values, bool dynamic = false);
-~~~
-
-Creates a buffer.
-
-#### Function make_element_buffer()
-
-~~~ .cpp
-inline gl_element_buffer make_element_buffer(
-    const vector<vec3i>& values, bool dynamic = false);
-~~~
-
-Creates a buffer.
-
-#### Function make_element_buffer()
-
-~~~ .cpp
-inline gl_element_buffer make_element_buffer(
-    const vector<vec4i>& values, bool dynamic = false);
-~~~
-
-Creates a buffer.
-
 #### Function update_element_buffer()
 
 ~~~ .cpp
-inline void update_element_buffer(
-    gl_element_buffer& buf, int num, int ncomp, const int* values);
+inline void update_element_buffer(gl_element_buffer& buf, int num, int ncomp,
+    const int* values, bool dynamic = false);
 ~~~
 
 Updates the buffer with new data.
@@ -10532,37 +10542,48 @@ Updates the buffer with new data.
 
 ~~~ .cpp
 inline void update_element_buffer(
-    gl_element_buffer& buf, const vector<int>& values);
+    gl_element_buffer& buf, const vector<int>& values, bool dynamic = false);
 ~~~
 
-Updates the buffer bid with new data.
+Updates the bufferwith new data.
 
 #### Function update_element_buffer()
 
 ~~~ .cpp
 inline void update_element_buffer(
-    gl_element_buffer& buf, const vector<vec2i>& values);
+    gl_element_buffer& buf, const vector<vec2i>& values, bool dynamic = false);
 ~~~
 
-Updates the buffer bid with new data.
+Updates the bufferwith new data.
 
 #### Function update_element_buffer()
 
 ~~~ .cpp
 inline void update_element_buffer(
-    gl_element_buffer& buf, const vector<vec3i>& values);
+    gl_element_buffer& buf, const vector<vec3i>& values, bool dynamic = false);
 ~~~
 
-Updates the buffer bid with new data.
+Updates the bufferwith new data.
 
 #### Function update_element_buffer()
 
 ~~~ .cpp
 inline void update_element_buffer(
-    gl_element_buffer& buf, const vector<vec4i>& values);
+    gl_element_buffer& buf, const vector<vec4i>& values, bool dynamic = false);
 ~~~
 
-Updates the buffer bid with new data.
+Updates the bufferwith new data.
+
+#### Function make_element_buffer()
+
+~~~ .cpp
+template <typename T>
+inline gl_element_buffer make_element_buffer(
+    const vector<T>& values, bool dynamic = false);
+~~~
+
+Make a buffer with new data. A convenience wrapper to
+update_velement_buffer().
 
 #### Function draw_elems()
 
@@ -11073,6 +11094,42 @@ inline void draw_image(gl_stdimage_program& prog, const gl_texture& txt,
 Draw an texture tid of size img_w, img_h on a window of size win_w,
 win_h with top-left corner at ox, oy with a zoom zoom.
 
+#### Struct gl_stdimage_params
+
+~~~ .cpp
+struct gl_stdimage_params {
+    vec2i win_size = {0, 0};
+    vec2f offset = {0, 0};
+    float zoom = 1;
+    float exposure = 1;
+    float gamma = 2.2f;
+    bool filmic = false;
+    vec4f background = zero4f;
+}
+~~~
+
+Params for  gl_stdimage_program drawing. This is just a way to pack all
+params together for the above functions.
+
+- Members:
+    - win_size:      window size
+    - offset:      image offset
+    - zoom:      image zoom
+    - exposure:      tonemap exposure
+    - gamma:      tonemap gamma
+    - filmic:      tonemap filmic
+    - background:      image background
+
+
+#### Function draw_image()
+
+~~~ .cpp
+inline void draw_image(gl_stdimage_program& prog, const gl_texture& txt,
+    const gl_stdimage_params& params, bool clear_background = true);
+~~~
+
+As above but includes an exposure/gamma correction.
+
 #### Struct gl_stdsurface_program
 
 ~~~ .cpp
@@ -11135,7 +11192,7 @@ ambient illumination amb.
 
 ~~~ .cpp
 inline void begin_stdsurface_shape(
-    gl_stdsurface_program& prog, const mat4f& xform);
+    gl_stdsurface_program& prog, const mat4f& xform, float normal_offset = 0);
 ~~~
 
 Begins drawing a shape with transform xform.
@@ -11147,6 +11204,15 @@ inline void end_stdsurface_shape(gl_stdsurface_program& prog);
 ~~~
 
 End shade drawing.
+
+#### Function set_stdsurface_normaloffset()
+
+~~~ .cpp
+inline void set_stdsurface_normaloffset(
+    gl_stdsurface_program& prog, float normal_offset);
+~~~
+
+Sets normal offset.
 
 #### Function set_stdsurface_highlight()
 
@@ -11175,6 +11241,15 @@ correspoinding XXX_txt variables. Sets also normal and occlusion
 maps. Works for points/lines/triangles (diffuse for points,
 Kajiya-Kay for lines, GGX/Phong for triangles).
 Material type matches the scene material type.
+
+#### Function set_stdsurface_constmaterial()
+
+~~~ .cpp
+inline void set_stdsurface_constmaterial(
+    gl_stdsurface_program& prog, const vec3f& ke, float op);
+~~~
+
+Set constant material values with emission ke.
 
 #### Function set_stdsurface_vert()
 
@@ -11237,11 +11312,15 @@ struct gl_stdsurface_params {
     bool filmic = false;
     bool wireframe = false;
     bool edges = false;
+    float edge_offset = 0.01f;
     bool cutout = false;
     bool camera_lights = false;
     vec4f background = {0, 0, 0, 0};
     vec3f ambient = {0, 0, 0};
-    void* hilighted = nullptr;
+    void* highlighted = nullptr;
+    vec3f highlight_color = {1, 1, 0};
+    vec3f edge_color = {0, 0, 0};
+    bool cull_backface = true;
 }
 ~~~
 
@@ -11256,11 +11335,15 @@ Params for  gl_stdsurface_program drawing
     - filmic:      image filmic tonemapping
     - wireframe:      draw as wireframe
     - edges:      draw with overlaid edges
+    - edge_offset:      offset for edges
     - cutout:      draw with an alpha cutout for binary transparency
     - camera_lights:      camera light mode
     - background:      window background
     - ambient:      ambient illumination
-    - hilighted:      highlighted object
+    - highlighted:      highlighted object
+    - highlight_color:      highlight color
+    - edge_color:      edge color
+    - cull_backface:      cull back back
 
 
 #### Function make_stdsurface_state()
@@ -11275,7 +11358,8 @@ Initialize gl_stdsurface_program draw state
 
 ~~~ .cpp
 void update_stdsurface_state(gl_stdsurface_state* st, const scene* scn,
-    const gl_stdsurface_params& params);
+    const gl_stdsurface_params& params,
+    const unordered_set<shape*>& refresh_shapes =;
 ~~~
 
 Update gl_stdsurface_program draw state. This updates stdsurface meshes
@@ -11488,7 +11572,8 @@ Handle camera navigation.
 #### Function init_widgets()
 
 ~~~ .cpp
-void init_widgets(gl_window* win);
+void init_widgets(
+    gl_window* win, bool light_style = false, bool extra_font = true);
 ~~~
 
 Initialize widgets
@@ -11737,6 +11822,25 @@ Enum widget
 #### Function draw_value_widget()
 
 ~~~ .cpp
+bool draw_value_widget(gl_window* win, const string& lbl, void*& val,
+    const vector<pair<string, void*>>& labels);
+~~~
+
+Enum widget
+
+#### Function draw_value_widget()
+
+~~~ .cpp
+template <typename T>
+inline bool draw_value_widget(gl_window* win, const string& lbl, T*& val,
+    const vector<pair<string, T*>>& labels);
+~~~
+
+Enum widget
+
+#### Function draw_value_widget()
+
+~~~ .cpp
 template <typename T>
 inline bool draw_value_widget(gl_window* win, const string& lbl, T& val,
     const vector<pair<string, T>>& labels);
@@ -11910,6 +12014,25 @@ inline void draw_tonemap_widgets(gl_window* win, const string& lbl,
 ~~~
 
 Tonemapping widgets
+
+#### Function draw_imageview_widgets()
+
+~~~ .cpp
+inline void draw_imageview_widgets(gl_window* win, const string& lbl,
+    gl_stdimage_params& params, bool show_tonemap = true);
+~~~
+
+Image view widgets
+
+#### Function draw_imageinspect_widgets()
+
+~~~ .cpp
+inline void draw_imageinspect_widgets(gl_window* win, const string& lbl,
+    const image4f& hdr, const image4b& ldr, const vec2f& mouse_pos,
+    const gl_stdimage_params& params);
+~~~
+
+Image inspection widgets
 
 #### Function draw_camera_widget()
 

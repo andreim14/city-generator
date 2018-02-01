@@ -1,8 +1,10 @@
+
 cmake_minimum_required (VERSION 3.5)
 
 project (yocto-gl)
 
 option(YOCTO_OPENGL "Build OpenGL apps" ON)
+option(YOCTO_EXPERIMENTAL "Build experimental apps" OFF)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED on)
@@ -48,10 +50,10 @@ if(YOCTO_OPENGL)
         find_library(GLFW_LIBRARY NAMES glfw3 glfw PATHS /usr/lib /usr/local/lib64 /usr/lib64 /usr/local/lib /usr/lib/x86_64-linux-gnu)
         find_package(GLEW REQUIRED)
     endif(UNIX AND NOT APPLE)
-    add_library(yocto_gl yocto/yocto_gl.h yocto/yocto_gl.cpp yocto/ext/stb_image.cpp yocto/ext/imgui/imgui.cpp yocto/ext/imgui/imgui_draw.cpp yocto/ext/imgui/imgui_impl_glfw_gl3.cpp)
+    add_library(yocto_gl yocto/yocto_gl.h yocto/yocto_gl.cpp yocto/ext/stb_image.cpp yocto/ext/nanosvg.cpp yocto/ext/imgui/imgui.cpp yocto/ext/imgui/imgui_draw.cpp yocto/ext/imgui/imgui_impl_glfw_gl3.cpp yocto/ext/imgui/imgui_extra_fonts.cpp)
     target_link_libraries(yocto_gl ${OPENGL_gl_LIBRARY} ${GLFW_LIBRARY} ${GLEW_LIBRARIES} ${X11_LIBRARIES} X11 Xxf86vm Xrandr Xi dl Xinerama Xcursor)
 else(YOCTO_OPENGL)
-    add_library(yocto_gl yocto/yocto_gl.h yocto/yocto_gl.cpp yocto/ext/stb_image.cpp)
+    add_library(yocto_gl yocto/yocto_gl.h yocto/yocto_gl.cpp yocto/ext/stb_image.cpp yocto/ext/nanosvg.cpp)
 endif(YOCTO_OPENGL)
 
 if(UNIX AND NOT APPLE)
@@ -63,14 +65,14 @@ add_executable(ytestgen apps/ytestgen.cpp yocto/yocto_gl.h)
 add_executable(ytrace apps/ytrace.cpp yocto/yocto_gl.h)
 add_executable(yscnproc apps/yscnproc.cpp yocto/yocto_gl.h)
 add_executable(yimproc apps/yimproc.cpp yocto/yocto_gl.h)
-add_executable(ciry_generator apps/city_generator.cpp yocto/yocto_gl.h)
+add_executable(city_generator apps/city_generator.cpp yocto/yocto_gl.h)
 
 
 target_link_libraries(ytestgen yocto_gl)
 target_link_libraries(ytrace yocto_gl)
 target_link_libraries(yscnproc yocto_gl)
 target_link_libraries(yimproc yocto_gl)
-target_link_libraries(ciry_generator yocto_gl)
+target_link_libraries(city_generator yocto_gl)
 
 
 if(YOCTO_OPENGL)
@@ -83,13 +85,9 @@ if(YOCTO_OPENGL)
     target_link_libraries(yitrace yocto_gl)
     target_link_libraries(ygltfview yocto_gl)
     target_link_libraries(yimview yocto_gl)
+
+    if(YOCTO_EXPERIMENTAL)
+        add_executable(yprocview apps/yprocview.cpp yocto/yocto_gl.h)
+        target_link_libraries(yprocview yocto_gl)
+    endif(YOCTO_EXPERIMENTAL)
 endif(YOCTO_OPENGL)
-# 
-# 
-# SET(CMAKE_SKIP_BUILD_RPATH FALSE)
-# 
-# SET(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE) 
-# 
-# SET(CMAKE_INSTALL_RPATH "/usr/lib64")
-# 
-# SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)

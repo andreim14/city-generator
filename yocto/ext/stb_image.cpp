@@ -49,8 +49,8 @@
 #define TINYEXR_IMPLEMENTATION
 #include "tinyexr.h"
 
-#ifndef _WIN32
-#pragma GCC diagnostic pop
 #endif
 
+#ifndef _WIN32
+#pragma GCC diagnostic pop
 #endif

@@ -1,4 +1,10 @@
 bin
 cmake
+cmake-build-debug/
 tests
 build
+generated_scenes
+.idea
+.vs
+run.sh
+libs

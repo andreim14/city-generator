@@ -30,6 +30,7 @@
 /// - simple logger and thread pool
 /// - path tracer supporting surfaces and hairs, GGX and MIS
 /// - support for loading and saving Wavefront OBJ and Khronos glTF
+/// - support for loading Bezier curves from SVG
 /// - OpenGL utilities to manage textures, buffers and prograrms
 /// - OpenGL shader for image viewing and GGX microfacet and hair rendering
 ///
@@ -88,8 +89,11 @@
 /// included in the manner described by the respective libraries. To simplify
 /// builds, we provice a file that builds these libraries, `stb_image.cpp`.
 ///
-/// To support Khronos glTF, Yocto/GL depends on `json.hpp`. These feature can
+/// To support Khronos glTF, Yocto/GL depends on `json.hpp`. This feature can
 /// be disabled by defining YGL_GLTF to 0 before including this file.
+///
+/// To support SVG, Yocto/GL depends on `nanosvg.h`. This feature can
+/// be disabled by defining YGL_SVG to 0 before including this file.
 ///
 /// OpenGL utilities include the OpenGL libaries, use GLEW on Windows/Linux,
 /// GLFW for windows handling and Dear ImGui for UI support.
@@ -236,11 +240,13 @@
 /// 12. convert quads to triangles with `convert_quads_to_triangles()`
 /// 13. convert face varying to vertex shared representations with
 ///     `convert_face_varying()`
-/// 14. subdivide elements by edge splits with `subdivide_elems()` and
-///     `subdivide_vert()`
-/// 15. Catmull-Clark subdivision surface with `subdivide_catmullclark()` with
-///     support for edge and vertex creasing
-/// 16. example shapes: `make_cube()`, `make_uvsphere()`, `make_uvhemisphere()`,
+/// 14. subdivide elements by edge splits with `subdivide_elems_linear()` and
+///     `subdivide_vert_linear()`
+/// 15. Catmull-Clark subdivision surface with `subdivide_vert_catmullclark()`
+///     with support for edge and vertex creasing
+/// 16. subdvide Bezier with `subdivide_bezier_recursive()` and
+///     `subdivide_vert_bezier()`
+/// 17. example shapes: `make_cube()`, `make_uvsphere()`, `make_uvhemisphere()`,
 ///     `make_uvquad()`, `make_uvcube()`, `make_fvcube()`, `make_hair()`,
 ///     `make_suzanne()`
 ///
@@ -571,6 +577,7 @@
 /// Here we mark only major features added to the library. Small refactorings
 /// and bug fixes are reported here.
 ///
+/// - v 0.2.0: various bug fixes and improvement to OpenGL drawing and widgets
 /// - v 0.1.0: initial release after refactoring
 ///
 
@@ -708,6 +715,11 @@
 // enable glTF
 #ifndef YGL_GLTF
 #define YGL_GLTF 1
+#endif
+
+// enable SVG
+#ifndef YGL_SVG
+#define YGL_SVG 1
 #endif
 
 // enable OpenGL
@@ -4395,6 +4407,18 @@ inline vector<vec3i> convert_quads_to_triangles(
     return triangles;
 }
 
+/// Convert beziers to lines using 3 lines for each bezier.
+inline vector<vec2i> convert_bezier_to_lines(const vector<vec4i>& beziers) {
+    auto lines = vector<vec2i>();
+    lines.reserve(beziers.size() * 3);
+    for (auto& b : beziers) {
+        lines += {b.x, b.y};
+        lines += {b.y, b.z};
+        lines += {b.z, b.w};
+    }
+    return lines;
+}
+
 /// Convert face varying data to single primitives. Returns the quads indices
 /// and filled vectors for pos, norm and texcoord.
 inline tuple<vector<vec4i>, vector<vec3f>, vector<vec3f>, vector<vec2f>>
@@ -4453,8 +4477,8 @@ inline vec4f _subdivide_normalize(const vec4f& x) { return normalize(x); }
 /// Returns the tesselated elements and dictionaries for vertex calculations.
 inline tuple<vector<vec2i>, vector<vec3i>, vector<vec4i>, vector<vec2i>,
     vector<vec4i>>
-subdivide_elems(const vector<vec2i>& lines, const vector<vec3i>& triangles,
-    const vector<vec4i>& quads, int nverts) {
+subdivide_elems_linear(const vector<vec2i>& lines,
+    const vector<vec3i>& triangles, const vector<vec4i>& quads, int nverts) {
     if (!nverts) return {};
     auto emap = unordered_map<vec2i, int>();
     auto edges = vector<vec2i>();
@@ -4523,7 +4547,7 @@ subdivide_elems(const vector<vec2i>& lines, const vector<vec3i>& triangles,
 
 /// Subdivide vertex properties given the maps
 template <typename T>
-inline vector<T> subdivide_vert(const vector<T>& vert,
+inline vector<T> subdivide_vert_linear(const vector<T>& vert,
     const vector<vec2i>& edges, const vector<vec4i>& faces,
     bool normalized = false) {
     if (vert.empty()) return {};
@@ -4548,12 +4572,12 @@ inline vector<T> subdivide_vert(const vector<T>& vert,
 }
 
 /// Performs the smoothing step of Catmull-Clark. Start with a tesselate quad
-/// mesh obtained with subdivide_elems() and subdivide_vert(). To handle open
-/// meshes with boundary, get the boundary from make_boundary_edge() and pass it
-/// as crease_lines. To fix the boundary entirely, just get the boundary
-/// vertices and pass it as creases.
+/// mesh obtained with subdivide_elems_linear() and subdivide_vert_linear(). To
+/// handle open meshes with boundary, get the boundary from make_boundary_edge()
+/// and pass it as crease_lines. To fix the boundary entirely, just get the
+/// boundary vertices and pass it as creases.
 template <typename T>
-inline vector<T> subdivide_catmullclark(const vector<vec4i>& quads,
+inline vector<T> subdivide_vert_catmullclark(const vector<vec4i>& quads,
     const vector<T>& vert, const vector<vec2i>& crease_tlines,
     const vector<int>& crease_tpoints, bool normalized = false) {
     if (quads.empty() || vert.empty()) return vert;
@@ -4597,6 +4621,63 @@ inline vector<T> subdivide_catmullclark(const vector<vec4i>& quads,
 
     if (normalized) {
         for (auto& v : tvert) v = _subdivide_normalize(v);
+    }
+
+    return tvert;
+}
+
+/// Subdivide bezier recursive by splitting each segment into two in the middle.
+/// Returns the tesselated elements and dictionaries for vertex calculations.
+inline tuple<vector<vec4i>, vector<int>, vector<vec4i>>
+subdivide_bezier_recursive(const vector<vec4i>& beziers, int nverts) {
+    if (!nverts) return {};
+    auto vmap = unordered_map<int, int>();
+    auto verts = vector<int>();
+    for (auto& b : beziers) {
+        if (!contains(vmap, b.x)) {
+            vmap[b.x] = verts.size();
+            verts += b.x;
+        }
+        if (!contains(vmap, b.w)) {
+            vmap[b.w] = verts.size();
+            verts += b.w;
+        }
+    }
+    auto tbeziers = vector<vec4i>();
+    tbeziers.reserve(beziers.size() * 2);
+    for (auto b_kv : enumerate(beziers)) {
+        auto b = b_kv.second;
+        auto bo = (int)verts.size() + b_kv.first * 5;
+        tbeziers += {vmap.at(b.x), bo + 0, bo + 1, bo + 2};
+        tbeziers += {bo + 2, bo + 3, bo + 4, vmap.at(b.w)};
+    }
+    return {tbeziers, verts, beziers};
+}
+
+/// Subdivide vertex properties given the maps
+template <typename T>
+inline vector<T> subdivide_vert_bezier(const vector<T>& vert,
+    const vector<int>& verts, const vector<vec4i>& segments,
+    bool normalized = false) {
+    if (vert.empty()) return {};
+
+    auto tvert = vector<T>();
+    tvert.reserve(verts.size() + segments.size() * 5);
+
+    for (auto v : verts) tvert += vert[v];
+    for (auto s : segments) {
+        tvert += vert[s.x] * (1.f / 2) + vert[s.y] * (1.f / 2);
+        tvert += vert[s.x] * (1.f / 4) + vert[s.y] * (1.f / 2) +
+                 vert[s.z] * (1.f / 4);
+        tvert += vert[s.x] * (1.f / 8) + vert[s.y] * (3.f / 8) +
+                 vert[s.z] * (3.f / 8) + vert[s.w] * (1.f / 8);
+        tvert += vert[s.y] * (1.f / 4) + vert[s.z] * (1.f / 2) +
+                 vert[s.w] * (1.f / 4);
+        tvert += vert[s.z] * (1.f / 2) + vert[s.w] * (1.f / 2);
+    }
+
+    if (normalized) {
+        for (auto& n : tvert) n = _subdivide_normalize(n);
     }
 
     return tvert;
@@ -4939,6 +5020,9 @@ make_uvflipcapsphere(int level, float z, bool flipped = false);
 /// texcoord.
 tuple<vector<vec4i>, vector<vec3f>, vector<vec3f>, vector<vec2f>>
 make_uvcutsphere(int level, float z, bool flipped = false);
+
+/// Make a bezier circle. Returns bezier, pos.
+tuple<vector<vec4i>, vector<vec3f>> make_bezier_circle();
 
 /// Make a hair ball around a shape. Returns lines, pos, norm, texcoord, radius.
 tuple<vector<vec2i>, vector<vec3f>, vector<vec3f>, vector<vec2f>, vector<float>>
@@ -6968,6 +7052,8 @@ struct shape {
     vector<vec4i> quads_norm;
     /// face-varying indices for texcoord
     vector<vec4i> quads_texcoord;
+    /// bezier
+    vector<vec4i> beziers;
 
     // vertex data ----------------------------
     /// per-vertex position (3 float)
@@ -6984,6 +7070,12 @@ struct shape {
     vector<float> radius;
     /// per-vertex tangent space (4 float)
     vector<vec4f> tangsp;
+
+    // subdivision data -----------------------
+    /// number of times to subdivide
+    int subdivision_level = 0;
+    /// whether to use Catmull-Clark subdivision
+    bool subdivision_catmullclark = false;
 
     // computed data --------------------------
     /// element CDF for sampling
@@ -7211,30 +7303,30 @@ inline vec4f eval_texture(const texture_info& info, const vec2f& texcoord,
 
 /// Subdivides shape elements. Apply subdivision surface rules if subdivide
 /// is true.
-inline void subdivide_shape(shape* shp, bool subdiv = false) {
+inline void subdivide_shape_once(shape* shp, bool subdiv = false) {
     if (!shp->lines.empty() || !shp->triangles.empty() || !shp->quads.empty()) {
         vector<vec2i> edges;
         vector<vec4i> faces;
         tie(shp->lines, shp->triangles, shp->quads, edges, faces) =
-            subdivide_elems(
+            subdivide_elems_linear(
                 shp->lines, shp->triangles, shp->quads, (int)shp->pos.size());
-        shp->pos = subdivide_vert(shp->pos, edges, faces);
-        shp->norm = subdivide_vert(shp->norm, edges, faces);
-        shp->texcoord = subdivide_vert(shp->texcoord, edges, faces);
-        shp->color = subdivide_vert(shp->color, edges, faces);
-        shp->radius = subdivide_vert(shp->radius, edges, faces);
+        shp->pos = subdivide_vert_linear(shp->pos, edges, faces);
+        shp->norm = subdivide_vert_linear(shp->norm, edges, faces);
+        shp->texcoord = subdivide_vert_linear(shp->texcoord, edges, faces);
+        shp->color = subdivide_vert_linear(shp->color, edges, faces);
+        shp->radius = subdivide_vert_linear(shp->radius, edges, faces);
         if (subdiv && !shp->quads.empty()) {
             auto boundary = get_boundary_edges({}, {}, shp->quads);
             shp->pos =
-                subdivide_catmullclark(shp->quads, shp->pos, boundary, {});
-            shp->norm =
-                subdivide_catmullclark(shp->quads, shp->norm, boundary, {});
-            shp->texcoord =
-                subdivide_catmullclark(shp->quads, shp->texcoord, boundary, {});
-            shp->color =
-                subdivide_catmullclark(shp->quads, shp->color, boundary, {});
-            shp->radius =
-                subdivide_catmullclark(shp->quads, shp->radius, boundary, {});
+                subdivide_vert_catmullclark(shp->quads, shp->pos, boundary, {});
+            shp->norm = subdivide_vert_catmullclark(
+                shp->quads, shp->norm, boundary, {});
+            shp->texcoord = subdivide_vert_catmullclark(
+                shp->quads, shp->texcoord, boundary, {});
+            shp->color = subdivide_vert_catmullclark(
+                shp->quads, shp->color, boundary, {});
+            shp->radius = subdivide_vert_catmullclark(
+                shp->quads, shp->radius, boundary, {});
             shp->norm = compute_normals({}, {}, shp->quads, shp->pos);
         }
     } else if (!shp->quads_pos.empty()) {
@@ -7243,23 +7335,34 @@ inline void subdivide_shape(shape* shp, bool subdiv = false) {
         vector<vec2i> edges;
         vector<vec4i> faces;
         tie(_lines, _triangles, shp->quads_pos, edges, faces) =
-            subdivide_elems({}, {}, shp->quads_pos, shp->pos.size());
-        shp->pos = subdivide_vert(shp->pos, edges, faces);
+            subdivide_elems_linear({}, {}, shp->quads_pos, shp->pos.size());
+        shp->pos = subdivide_vert_linear(shp->pos, edges, faces);
         tie(_lines, _triangles, shp->quads_norm, edges, faces) =
-            subdivide_elems({}, {}, shp->quads_norm, shp->norm.size());
-        shp->norm = subdivide_vert(shp->norm, edges, faces);
+            subdivide_elems_linear({}, {}, shp->quads_norm, shp->norm.size());
+        shp->norm = subdivide_vert_linear(shp->norm, edges, faces);
         tie(_lines, _triangles, shp->quads_texcoord, edges, faces) =
-            subdivide_elems({}, {}, shp->quads_texcoord, shp->texcoord.size());
-        shp->texcoord = subdivide_vert(shp->texcoord, edges, faces);
+            subdivide_elems_linear(
+                {}, {}, shp->quads_texcoord, shp->texcoord.size());
+        shp->texcoord = subdivide_vert_linear(shp->texcoord, edges, faces);
         if (subdiv) {
-            shp->pos = subdivide_catmullclark(shp->quads_pos, shp->pos,
+            shp->pos = subdivide_vert_catmullclark(shp->quads_pos, shp->pos,
                 get_boundary_edges({}, {}, shp->quads_pos), {});
-            shp->norm = subdivide_catmullclark(shp->quads_norm, shp->norm,
+            shp->norm = subdivide_vert_catmullclark(shp->quads_norm, shp->norm,
                 get_boundary_edges({}, {}, shp->quads_norm), {});
             shp->texcoord =
-                subdivide_catmullclark(shp->quads_texcoord, shp->texcoord, {},
-                    get_boundary_verts({}, {}, shp->quads_texcoord));
+                subdivide_vert_catmullclark(shp->quads_texcoord, shp->texcoord,
+                    {}, get_boundary_verts({}, {}, shp->quads_texcoord));
         }
+    } else if (!shp->beziers.empty()) {
+        vector<int> verts;
+        vector<vec4i> segments;
+        tie(shp->beziers, verts, segments) =
+            subdivide_bezier_recursive(shp->beziers, (int)shp->pos.size());
+        shp->pos = subdivide_vert_bezier(shp->pos, verts, segments);
+        shp->norm = subdivide_vert_bezier(shp->norm, verts, segments);
+        shp->texcoord = subdivide_vert_bezier(shp->texcoord, verts, segments);
+        shp->color = subdivide_vert_bezier(shp->color, verts, segments);
+        shp->radius = subdivide_vert_bezier(shp->radius, verts, segments);
     }
 }
 
@@ -7278,16 +7381,40 @@ inline void facet_shape(shape* shp) {
 }
 
 /// Tesselate a shape into basic primitives
-inline void tesselate_shape(shape* shp) {
-    if (shp->quads_pos.empty()) return;
-    std::tie(shp->quads, shp->pos, shp->norm, shp->texcoord) =
-        convert_face_varying(shp->quads_pos, shp->quads_norm,
-            shp->quads_texcoord, shp->pos, shp->norm, shp->texcoord);
+inline void tesselate_shape(shape* shp, bool subdivide,
+    bool facevarying_to_sharedvertex, bool quads_to_triangles,
+    bool bezier_to_lines) {
+    if (subdivide && shp->subdivision_level) {
+        for (auto l = 0; l < shp->subdivision_level; l++) {
+            subdivide_shape_once(shp, shp->subdivision_catmullclark);
+        }
+    }
+    if (facevarying_to_sharedvertex && !shp->quads_pos.empty()) {
+        std::tie(shp->quads, shp->pos, shp->norm, shp->texcoord) =
+            convert_face_varying(shp->quads_pos, shp->quads_norm,
+                shp->quads_texcoord, shp->pos, shp->norm, shp->texcoord);
+        shp->quads_pos = {};
+        shp->quads_norm = {};
+        shp->quads_texcoord = {};
+    }
+    if (quads_to_triangles && !shp->quads.empty()) {
+        shp->triangles = convert_quads_to_triangles(shp->quads);
+        shp->quads = {};
+    }
+    if (bezier_to_lines && !shp->beziers.empty()) {
+        shp->lines = convert_bezier_to_lines(shp->beziers);
+        shp->beziers = {};
+    }
 }
 
 /// Tesselate scene shapes and update pointers
-inline void tesselate_shapes(scene* scn) {
-    for (auto shp : scn->shapes) tesselate_shape(shp);
+inline void tesselate_shapes(scene* scn, bool subdivide,
+    bool facevarying_to_sharedvertex, bool quads_to_triangles,
+    bool bezier_to_lines) {
+    for (auto shp : scn->shapes) {
+        tesselate_shape(shp, subdivide, facevarying_to_sharedvertex,
+            quads_to_triangles, bezier_to_lines);
+    }
 }
 
 /// Loading options
@@ -8044,8 +8171,10 @@ enum struct obj_element_type : uint16_t {
     line = 2,
     /// polygon faces
     face = 3,
+    /// bezier segments
+    bezier = 4,
     /// tetrahedrons
-    tetra = 4,
+    tetra = 5,
 };
 
 /// Element vertex indices
@@ -8067,6 +8196,10 @@ struct obj_group {
     string groupname;
     /// smoothing
     bool smoothing = true;
+    /// number of times to subdivide
+    int subdivision_level = 0;
+    /// whether to use Catmull-Clark subdivision
+    bool subdivision_catmullclark = false;
 
     // element data -------------------------
     /// element vertices
@@ -8307,6 +8440,8 @@ struct obj_shape {
     vector<vec2i> lines;
     /// triangles
     vector<vec3i> triangles;
+    /// bezier
+    vector<vec4i> bezier;
     /// tetrahedrons
     vector<vec4i> tetras;
 
@@ -9360,6 +9495,51 @@ struct accessor_view {
 
 #endif
 
+#if YGL_SVG
+
+// -----------------------------------------------------------------------------
+// SVG SUPPORT
+// -----------------------------------------------------------------------------
+namespace ygl {
+
+/// Svg path
+struct svg_path {
+    /// Path vertices
+    vector<vec2f> pos;
+};
+
+/// Svg shape
+struct svg_shape {
+    /// Paths
+    vector<svg_path*> paths;
+
+    /// Cleanup
+    ~svg_shape() {
+        for (auto e : paths) delete e;
+    }
+};
+
+/// Svg scene
+struct svg_scene {
+    /// Shapes
+    vector<svg_shape*> shapes;
+
+    /// Cleanup
+    ~svg_scene() {
+        for (auto e : shapes) delete e;
+    }
+};
+
+/// Load SVG
+svg_scene* load_svg(const string& filename);
+
+/// Save SVG
+void save_svg(const string& filename, const svg_scene* svg);
+
+}  // namespace ygl
+
+#endif
+
 // -----------------------------------------------------------------------------
 // PYTHON-LIKE STRING, PATH AND FILE OPERATIONS
 // -----------------------------------------------------------------------------
@@ -9735,14 +9915,16 @@ inline void _check_name(
 // cmdline implementation
 template <typename T>
 inline void _add_usage_str(cmdline_parser& parser, const string& name,
-    const string& flag, bool opt, const string& help, const string& def,
-    bool req, const vector<T>& choices) {
+    const string& flag, bool opt, const string& metavar, const string& help,
+    const string& def, bool req, const vector<T>& choices) {
     auto stream = stringstream();
     stream << "  " << name;
     if (!flag.empty()) stream << "/" << flag;
+    if (!metavar.empty()) stream << " " << metavar;
     while (stream.str().length() < 32) stream << " ";
     stream << help << " ";
     if (!req) stream << "[" << def << "]";
+    if (req) stream << "(required)";
     stream << "\n";
     if (!choices.empty()) {
         for (auto i = 0; i < 32; i++) stream << " ";
@@ -9765,11 +9947,12 @@ inline void _add_usage_str(cmdline_parser& parser, const string& name,
 // cmdline implementation
 template <typename T>
 inline void _add_usage(cmdline_parser& parser, const string& name,
-    const string& flag, bool opt, const string& help, const T& def, bool req,
-    const vector<T>& choices) {
+    const string& flag, bool opt, bool flag_opt, const string& help,
+    const T& def, bool req, const vector<T>& choices) {
     auto stream = stringstream();
     stream << def;
-    _add_usage_str(parser, name, flag, opt, help, stream.str(), req, choices);
+    _add_usage_str(parser, name, flag, opt, (flag_opt) ? "" : "<val>", help,
+        stream.str(), req, choices);
 }
 
 // cmdline implementation
@@ -9784,7 +9967,8 @@ inline void _add_usage(cmdline_parser& parser, const string& name,
         stream << v;
         first = false;
     }
-    _add_usage_str(parser, name, flag, opt, help, stream.str(), req, choices);
+    _add_usage_str(
+        parser, name, flag, opt, "<val>*", help, stream.str(), req, choices);
 }
 
 // cmdline implementation
@@ -9826,6 +10010,8 @@ inline bool parse_flag(cmdline_parser& parser, const string& name,
     bool req = false) {
     // check names
     _check_name(parser, name, flag, true);
+    // update usage
+    _add_usage(parser, name, flag, true, true, help, def, req, {});
     // skip if error
     if (!parser._error.empty()) return def;
     // find location of option
@@ -9850,7 +10036,7 @@ inline T parse_opt(cmdline_parser& parser, const string& name,
     // check names
     _check_name(parser, name, flag, true);
     // update usage
-    _add_usage(parser, name, flag, true, help, def, req, choices);
+    _add_usage(parser, name, flag, true, false, help, def, req, choices);
     // skip if error
     if (!parser._error.empty()) return def;
     // find location of option
@@ -9917,7 +10103,7 @@ inline T parse_arg(cmdline_parser& parser, const string& name,
     // check names
     _check_name(parser, name, "", false);
     // update usage
-    _add_usage(parser, name, "", false, help, def, req, choices);
+    _add_usage(parser, name, "", false, false, help, def, req, choices);
     // skip if error
     if (!parser._error.empty()) return def;
     // find location of argument
@@ -10366,7 +10552,7 @@ void gl_clear_buffers(const vec4f& background = {0, 0, 0, 0});
 void gl_enable_depth_test(bool enabled);
 
 /// Enable/disable culling
-void gl_enable_culling(bool enabled);
+void gl_enable_culling(bool enabled, bool front = false, bool back = true);
 
 /// Enable/disable wireframe
 void gl_enable_wireframe(bool enabled);
@@ -10413,77 +10599,70 @@ struct gl_texture {
     bool _srgb = true;
     // mipmap
     bool _mipmap = true;
+    // linear interpolation
+    bool _linear = true;
 };
 
-// Implementation of make_texture.
-void _init_texture(gl_texture& txt, int w, int h, int nc, const void* pixels,
+// Implementation of update_texture.
+void _update_texture(gl_texture& txt, int w, int h, int nc, const void* pixels,
     bool floats, bool linear, bool mipmap, bool as_float, bool as_srgb);
 
-// Implementation of update_texture.
-void _update_texture(
-    gl_texture& txt, int w, int h, int nc, const void* pixels, bool floats);
-
-/// Creates a texture with pixels values of size w, h with nc number of
-/// components (1-4).
-/// Internally use float if as_float and filtering if filter.
-/// Returns the texture id.
-inline gl_texture make_texture(int w, int h, int nc, const float* pixels,
-    bool linear, bool mipmap, bool as_float) {
-    auto txt = gl_texture();
-    _init_texture(txt, w, h, nc, pixels, true, linear, mipmap, as_float, false);
-    return txt;
+/// Updates a texture with pixels values of size w, h with nc number of
+/// components (1-4). Internally use float if as_float and filtering if filter.
+inline void update_texture(gl_texture& txt, int w, int h, int nc,
+    const float* pixels, bool linear, bool mipmap, bool as_float) {
+    _update_texture(
+        txt, w, h, nc, pixels, true, linear, mipmap, as_float, false);
 }
 
-/// Creates a texture with pixels values of size w, h with nc number of
-/// components (1-4).
-/// Internally use srgb lookup if as_srgb and filtering if filter.
-/// Returns the texture id.
-inline gl_texture make_texture(int w, int h, int nc,
+/// Updates a texture with pixels values of size w, h with nc number of
+/// components (1-4). Internally use float if as_float and filtering if filter.
+inline void update_texture(gl_texture& txt, int w, int h, int nc,
     const unsigned char* pixels, bool linear, bool mipmap, bool as_srgb) {
-    auto txt = gl_texture();
-    _init_texture(txt, w, h, nc, pixels, false, linear, mipmap, false, as_srgb);
-    return txt;
+    _update_texture(
+        txt, w, h, nc, pixels, false, linear, mipmap, false, as_srgb);
 }
 
-/// Creates a texture from an image.
+/// Updates a texture with pixels values from an image.
 /// Internally use float if as_float and filtering if filter.
-/// Returns the texture id.
-inline gl_texture make_texture(
-    const image4f& img, bool linear, bool mipmap, bool as_float) {
-    return make_texture(img.width(), img.height(), 4, (float*)img.data(),
+inline void update_texture(gl_texture& txt, const image4f& img, bool linear,
+    bool mipmap, bool as_float) {
+    update_texture(txt, img.width(), img.height(), 4, (const float*)img.data(),
         linear, mipmap, as_float);
 }
 
-/// Creates a texture from an image.
-/// Internally use srgb lookup if as_srgb and filtering if filter.
-/// Returns the texture id.
+/// Updates a texture with pixels values from an image.
+/// Internally use float if as_float and filtering if filter.
+inline void update_texture(gl_texture& txt, const image4b& img, bool linear,
+    bool mipmap, bool as_srgb) {
+    update_texture(txt, img.width(), img.height(), 4,
+        (const unsigned char*)img.data(), linear, mipmap, as_srgb);
+}
+
+/// Updates a texture with pixels values from an image.
+inline void update_texture(gl_texture& txt, const image4f& img) {
+    update_texture(txt, img, txt._linear, txt._mipmap, txt._float);
+}
+
+/// Updates a texture with pixels values from an image.
+inline void update_texture(gl_texture& txt, const image4b& img) {
+    update_texture(txt, img, txt._linear, txt._mipmap, txt._srgb);
+}
+
+/// Creates a texture from an image. Convenience wrapper to update_texture().
+inline gl_texture make_texture(
+    const image4f& img, bool linear, bool mipmap, bool as_float) {
+    auto txt = gl_texture();
+    update_texture(txt, img, linear, mipmap, as_float);
+    return txt;
+}
+
+/// Creates a texture from an image. Convenience wrapper to update_texture().
 inline gl_texture make_texture(
     const image4b& img, bool linear, bool mipmap, bool as_srgb) {
-    return make_texture(img.width(), img.height(), 4, (byte*)img.data(), linear,
-        mipmap, as_srgb);
-}
-
-/// Updates the texture tid with new image data.
-inline void update_texture(
-    gl_texture& txt, int w, int h, int nc, const float* pixels) {
-    _update_texture(txt, w, h, nc, pixels, true);
-}
-
-/// Updates the texture tid with new image data.
-inline void update_texture(
-    gl_texture& txt, int w, int h, int nc, const unsigned char* pixels) {
-    _update_texture(txt, w, h, nc, pixels, false);
-}
-
-/// Updates the texture tid with new image data.
-inline void update_texture(gl_texture& txt, const image4f& img) {
-    update_texture(txt, img.width(), img.height(), 4, (const float*)img.data());
-}
-
-/// Updates the texture tid with new image data.
-inline void update_texture(gl_texture& txt, const image4b& img) {
-    update_texture(
-        txt, img.width(), img.height(), 4, (const unsigned char*)img.data());
+    auto txt = gl_texture();
+    update_texture(txt, img, linear, mipmap, as_srgb);
+    return txt;
 }
 
 /// Binds a texture to a texture unit
@@ -10570,142 +10749,84 @@ struct gl_vertex_buffer {
     bool _float = true;
 };
 
-// Creates a buffer with num elements of size size stored in values, where
-// content is dyanamic if dynamic.
-void _init_vertex_buffer(gl_vertex_buffer& buf, int n, int nc,
+// Updates the bufferwith new data.
+void _update_vertex_buffer(gl_vertex_buffer& buf, int n, int nc,
     const void* values, bool as_float, bool dynamic);
 
-// Updates the buffer bid with new data.
-void _update_vertex_buffer(
-    gl_vertex_buffer& buf, int n, int nc, const void* values, bool as_float);
-
-/// Creates a buffer.
-inline gl_vertex_buffer make_vertex_buffer(
-    int num, int ncomp, const float* values, bool dynamic = false) {
-    auto buf = gl_vertex_buffer();
-    _init_vertex_buffer(buf, num, ncomp, values, true, dynamic);
-    return buf;
+/// Updates the buffer with new data.
+inline void update_vertex_buffer(gl_vertex_buffer& buf, int num, int ncomp,
+    const float* values, bool dynamic = false) {
+    _update_vertex_buffer(buf, num, ncomp, values, true, dynamic);
 }
 
-/// Creates a buffer.
-inline gl_vertex_buffer make_vertex_buffer(
-    int num, int ncomp, const int* values, bool dynamic = false) {
-    auto buf = gl_vertex_buffer();
-    _init_vertex_buffer(buf, num, ncomp, values, true, dynamic);
-    return buf;
+/// Updates the buffer with new data.
+inline void update_vertex_buffer(gl_vertex_buffer& buf, int num, int ncomp,
+    const int* values, bool dynamic = false) {
+    _update_vertex_buffer(buf, num, ncomp, values, false, dynamic);
 }
 
-/// Creates a buffer.
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<float>& values, bool dynamic = false) {
-    return make_vertex_buffer(values.size(), 1, values.data(), dynamic);
+/// Updates the bufferwith new data.
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<float>& values, bool dynamic = false) {
+    update_vertex_buffer(buf, values.size(), 1, values.data(), dynamic);
 }
 
-/// Creates a buffer.
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<vec2f>& values, bool dynamic = false) {
-    return make_vertex_buffer(
-        values.size(), 2, (const float*)values.data(), dynamic);
+/// Updates the bufferwith new data.
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<vec2f>& values, bool dynamic = false) {
+    update_vertex_buffer(
+        buf, values.size(), 2, (const float*)values.data(), dynamic);
 }
 
-/// Creates a buffer.
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<vec3f>& values, bool dynamic = false) {
-    return make_vertex_buffer(
-        values.size(), 3, (const float*)values.data(), dynamic);
+/// Updates the bufferwith new data.
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<vec3f>& values, bool dynamic = false) {
+    update_vertex_buffer(
+        buf, values.size(), 3, (const float*)values.data(), dynamic);
 }
 
-/// Creates a buffer.
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<vec4f>& values, bool dynamic = false) {
-    return make_vertex_buffer(
-        values.size(), 4, (const float*)values.data(), dynamic);
+/// Updates the bufferwith new data.
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<vec4f>& values, bool dynamic = false) {
+    update_vertex_buffer(
+        buf, values.size(), 4, (const float*)values.data(), dynamic);
 }
 
-/// Creates a buffer.
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<int>& values, bool dynamic = false) {
-    return make_vertex_buffer(values.size(), 1, values.data(), dynamic);
+/// Updates the bufferwith new data.
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<int>& values, bool dynamic = false) {
+    update_vertex_buffer(buf, values.size(), 1, values.data(), dynamic);
 }
 
-/// Creates a buffer.
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<vec2i>& values, bool dynamic = false) {
-    return make_vertex_buffer(
-        values.size(), 2, (const int*)values.data(), dynamic);
-}
-/// Creates a buffer.
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<vec3i>& values, bool dynamic = false) {
-    return make_vertex_buffer(
-        values.size(), 3, (const int*)values.data(), dynamic);
+/// Updates the bufferwith new data.
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<vec2i>& values, bool dynamic = false) {
+    update_vertex_buffer(
+        buf, values.size(), 2, (const int*)values.data(), dynamic);
 }
 
-/// Creates a buffer.
-inline gl_vertex_buffer make_vertex_buffer(
-    const vector<vec4i>& values, bool dynamic = false) {
-    return make_vertex_buffer(
-        values.size(), 4, (const int*)values.data(), dynamic);
+/// Updates the bufferwith new data.
+inline void update_vertex_buffer(
+    gl_vertex_buffer& buf, const vector<vec3i>& values, bool dynamic = false) {
+    update_vertex_buffer(
+        buf, values.size(), 3, (const int*)values.data(), dynamic);
 }
 
 /// Updates the buffer with new data.
 inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, int num, int ncomp, const float* values) {
-    _update_vertex_buffer(buf, num, ncomp, values, true);
+    gl_vertex_buffer& buf, const vector<vec4i>& values, bool dynamic = false) {
+    update_vertex_buffer(
+        buf, values.size(), 4, (const int*)values.data(), dynamic);
 }
 
-/// Updates the buffer with new data.
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, int num, int ncomp, const int* values) {
-    _update_vertex_buffer(buf, num, ncomp, values, false);
-}
-
-/// Updates the buffer bid with new data.
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<float>& values) {
-    update_vertex_buffer(buf, values.size(), 1, values.data());
-}
-
-/// Updates the buffer bid with new data.
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<vec2f>& values) {
-    update_vertex_buffer(buf, values.size(), 2, (const float*)values.data());
-}
-
-/// Updates the buffer bid with new data.
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<vec3f>& values) {
-    update_vertex_buffer(buf, values.size(), 3, (const float*)values.data());
-}
-
-/// Updates the buffer bid with new data.
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<vec4f>& values) {
-    update_vertex_buffer(buf, values.size(), 4, (const float*)values.data());
-}
-
-/// Updates the buffer bid with new data.
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<int>& values) {
-    update_vertex_buffer(buf, values.size(), 1, values.data());
-}
-
-/// Updates the buffer bid with new data.
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<vec2i>& values) {
-    update_vertex_buffer(buf, values.size(), 2, (const int*)values.data());
-}
-
-/// Updates the buffer bid with new data.
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<vec3i>& values) {
-    update_vertex_buffer(buf, values.size(), 3, (const int*)values.data());
-}
-
-/// Updates the buffer bid with new data.
-inline void update_vertex_buffer(
-    gl_vertex_buffer& buf, const vector<vec4i>& values) {
-    update_vertex_buffer(buf, values.size(), 4, (const int*)values.data());
+/// Make a buffer with new data. A convenience wrapper to
+/// update_vertex_buffer().
+template <typename T>
+inline gl_vertex_buffer make_vertex_buffer(
+    const vector<T>& values, bool dynamic = false) {
+    auto buf = gl_vertex_buffer();
+    update_vertex_buffer(buf, values, dynamic);
+    return buf;
 }
 
 /// Bind the buffer at a particular attribute location
@@ -10744,79 +10865,51 @@ struct gl_element_buffer {
     int _ncomp = 0;
 };
 
-// Creates a buffer with num elements of size size stored in values, where
-// content is dyanamic if dynamic.
-// Returns the buffer id.
-void _init_element_buffer(
+// Updates the bufferwith new data.
+void _update_element_buffer(
     gl_element_buffer& buf, int n, int nc, const int* values, bool dynamic);
 
-// Updates the buffer bid with new data.
-void _update_element_buffer(
-    gl_element_buffer& buf, int n, int nc, const int* values);
-
-/// Creates a buffer.
-inline gl_element_buffer make_element_buffer(
-    int num, int ncomp, const int* values, bool dynamic = false) {
-    auto buf = gl_element_buffer();
-    _init_element_buffer(buf, num, ncomp, values, dynamic);
-    return buf;
-}
-
-/// Creates a buffer.
-inline gl_element_buffer make_element_buffer(
-    const vector<int>& values, bool dynamic = false) {
-    return make_element_buffer(values.size(), 1, values.data(), dynamic);
-}
-
-/// Creates a buffer.
-inline gl_element_buffer make_element_buffer(
-    const vector<vec2i>& values, bool dynamic = false) {
-    return make_element_buffer(
-        values.size(), 2, (const int*)values.data(), dynamic);
-}
-
-/// Creates a buffer.
-inline gl_element_buffer make_element_buffer(
-    const vector<vec3i>& values, bool dynamic = false) {
-    return make_element_buffer(
-        values.size(), 3, (const int*)values.data(), dynamic);
-}
-
-/// Creates a buffer.
-inline gl_element_buffer make_element_buffer(
-    const vector<vec4i>& values, bool dynamic = false) {
-    return make_element_buffer(
-        values.size(), 4, (const int*)values.data(), dynamic);
-}
-
 /// Updates the buffer with new data.
-inline void update_element_buffer(
-    gl_element_buffer& buf, int num, int ncomp, const int* values) {
-    _update_element_buffer(buf, num, ncomp, values);
+inline void update_element_buffer(gl_element_buffer& buf, int num, int ncomp,
+    const int* values, bool dynamic = false) {
+    _update_element_buffer(buf, num, ncomp, values, dynamic);
 }
 
-/// Updates the buffer bid with new data.
+/// Updates the bufferwith new data.
 inline void update_element_buffer(
-    gl_element_buffer& buf, const vector<int>& values) {
-    update_element_buffer(buf, values.size(), 1, values.data());
+    gl_element_buffer& buf, const vector<int>& values, bool dynamic = false) {
+    update_element_buffer(buf, values.size(), 1, values.data(), dynamic);
 }
 
-/// Updates the buffer bid with new data.
+/// Updates the bufferwith new data.
 inline void update_element_buffer(
-    gl_element_buffer& buf, const vector<vec2i>& values) {
-    update_element_buffer(buf, values.size(), 2, (const int*)values.data());
+    gl_element_buffer& buf, const vector<vec2i>& values, bool dynamic = false) {
+    update_element_buffer(
+        buf, values.size(), 2, (const int*)values.data(), dynamic);
 }
 
-/// Updates the buffer bid with new data.
+/// Updates the bufferwith new data.
 inline void update_element_buffer(
-    gl_element_buffer& buf, const vector<vec3i>& values) {
-    update_element_buffer(buf, values.size(), 3, (const int*)values.data());
+    gl_element_buffer& buf, const vector<vec3i>& values, bool dynamic = false) {
+    update_element_buffer(
+        buf, values.size(), 3, (const int*)values.data(), dynamic);
 }
 
-/// Updates the buffer bid with new data.
+/// Updates the bufferwith new data.
 inline void update_element_buffer(
-    gl_element_buffer& buf, const vector<vec4i>& values) {
-    update_element_buffer(buf, values.size(), 4, (const int*)values.data());
+    gl_element_buffer& buf, const vector<vec4i>& values, bool dynamic = false) {
+    update_element_buffer(
+        buf, values.size(), 4, (const int*)values.data(), dynamic);
+}
+
+/// Make a buffer with new data. A convenience wrapper to
+/// update_velement_buffer().
+template <typename T>
+inline gl_element_buffer make_element_buffer(
+    const vector<T>& values, bool dynamic = false) {
+    auto buf = gl_element_buffer();
+    update_element_buffer(buf, values, dynamic);
+    return buf;
 }
 
 /// Draws elements.
@@ -11289,11 +11382,14 @@ inline void set_stdsurface_lights(gl_stdsurface_program& prog, const vec3f& amb,
 
 /// Begins drawing a shape with transform xform.
 inline void begin_stdsurface_shape(
-    gl_stdsurface_program& prog, const mat4f& xform) {
+    gl_stdsurface_program& prog, const mat4f& xform, float normal_offset = 0) {
     static auto xform_id =
         get_program_uniform_location(prog._prog, "shape_xform");
+    static auto normal_offset_id =
+        get_program_uniform_location(prog._prog, "shape_normal_offset");
     assert(gl_check_error());
     set_program_uniform(prog._prog, xform_id, xform);
+    set_program_uniform(prog._prog, normal_offset_id, normal_offset);
     assert(gl_check_error());
 }
 
@@ -11301,6 +11397,16 @@ inline void begin_stdsurface_shape(
 inline void end_stdsurface_shape(gl_stdsurface_program& prog) {
     assert(gl_check_error());
     for (int i = 0; i < 16; i++) unbind_vertex_buffer(i);
+    assert(gl_check_error());
+}
+
+/// Sets normal offset.
+inline void set_stdsurface_normaloffset(
+    gl_stdsurface_program& prog, float normal_offset) {
+    static auto normal_offset_id =
+        get_program_uniform_location(prog._prog, "shape_normal_offset");
+    assert(gl_check_error());
+    set_program_uniform(prog._prog, normal_offset_id, normal_offset);
     assert(gl_check_error());
 }
 
@@ -11398,6 +11504,24 @@ inline void set_stdsurface_material(gl_stdsurface_program& prog,
     assert(gl_check_error());
 }
 
+/// Set constant material values with emission ke.
+inline void set_stdsurface_constmaterial(
+    gl_stdsurface_program& prog, const vec3f& ke, float op) {
+    static auto mtype_id =
+        get_program_uniform_location(prog._prog, "material.mtype");
+    static auto etype_id =
+        get_program_uniform_location(prog._prog, "material.etype");
+    static auto ke_id = get_program_uniform_location(prog._prog, "material.ke");
+    static auto op_id = get_program_uniform_location(prog._prog, "material.op");
+
+    assert(gl_check_error());
+    set_program_uniform(prog._prog, mtype_id, 0);
+    set_program_uniform(prog._prog, etype_id, 0);
+    set_program_uniform(prog._prog, ke_id, ke);
+    set_program_uniform(prog._prog, op_id, op);
+    assert(gl_check_error());
+}
+
 /// Set vertex data with buffers for position pos, normals norm, texture
 /// coordinates texcoord, per-vertex color color and tangent space tangsp.
 inline void set_stdsurface_vert(gl_stdsurface_program& prog,
@@ -11485,6 +11609,7 @@ struct gl_stdsurface_vbo {
     gl_element_buffer lines = {};      // line elements
     gl_element_buffer triangles = {};  // triangle elements
     gl_element_buffer quads = {};      // quad elements (as 2 triangles)
+    gl_element_buffer beziers = {};    // bezier elements (as 3 lines)
     gl_element_buffer edges = {};      // edge elements
 };
 
@@ -11517,6 +11642,8 @@ struct gl_stdsurface_params {
     bool wireframe = false;
     /// draw with overlaid edges
     bool edges = false;
+    /// offset for edges
+    float edge_offset = 0.01f;
     /// draw with an alpha cutout for binary transparency
     bool cutout = false;
     /// camera light mode
@@ -11526,7 +11653,13 @@ struct gl_stdsurface_params {
     /// ambient illumination
     vec3f ambient = {0, 0, 0};
     /// highlighted object
-    void* hilighted = nullptr;
+    void* highlighted = nullptr;
+    /// highlight color
+    vec3f highlight_color = {1, 1, 0};
+    /// edge color
+    vec3f edge_color = {0, 0, 0};
+    /// cull back back
+    bool cull_backface = true;
 };
 
 /// Initialize gl_stdsurface_program draw state
@@ -11535,7 +11668,9 @@ gl_stdsurface_state* make_stdsurface_state();
 /// Update gl_stdsurface_program draw state. This updates stdsurface meshes
 /// and textures on the GPU.
 void update_stdsurface_state(gl_stdsurface_state* st, const scene* scn,
-    const gl_stdsurface_params& params);
+    const gl_stdsurface_params& params,
+    const unordered_set<shape*>& refresh_shapes = {},
+    const unordered_set<texture*>& refresh_textures = {});
 
 /// Clear gl_stdsurface_program draw state
 void clear_stdsurface_state(gl_stdsurface_state* st);
@@ -11642,7 +11777,8 @@ inline void save_screenshot(gl_window* win, const string& imfilename) {
 bool handle_camera_navigation(gl_window* win, camera* cam, bool navigation_fps);
 
 /// Initialize widgets
-void init_widgets(gl_window* win);
+void init_widgets(
+    gl_window* win, bool light_style = false, bool extra_font = true);
 
 /// Begin draw widget
 bool begin_widgets(gl_window* win, const string& title);
@@ -11794,6 +11930,18 @@ inline bool _enum_widget_labels_int(void* data, int idx, const char** out) {
 /// Enum widget
 bool draw_value_widget(gl_window* win, const string& lbl, int& val,
     const vector<pair<string, int>>& labels);
+
+/// Enum widget
+bool draw_value_widget(gl_window* win, const string& lbl, void*& val,
+    const vector<pair<string, void*>>& labels);
+
+/// Enum widget
+template <typename T>
+inline bool draw_value_widget(gl_window* win, const string& lbl, T*& val,
+    const vector<pair<string, T*>>& labels) {
+    return draw_value_widget(
+        win, lbl, (void*&)val, (const vector<pair<string, void*>>&)labels);
+}
 
 /// Enum widget
 template <typename T>

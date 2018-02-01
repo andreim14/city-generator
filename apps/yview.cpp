@@ -61,7 +61,11 @@ inline void draw(gl_window* win) {
     update_stdsurface_state(app->shstate, app->scn, app->shparams);
     if (app->shstate->lights_pos.empty()) app->shparams.camera_lights = true;
 
-    gl_clear_buffers();
+    app->shparams.highlighted = app->selection;
+
+    gl_clear_buffers(app->shparams.background);
+    gl_enable_depth_test(true);
+    gl_enable_culling(app->shparams.cull_backface);
     draw_stdsurface_scene(app->shstate, app->scn, app->shparams);
 
     if (begin_widgets(win, "yview")) {
@@ -156,7 +160,8 @@ int main(int argc, char* argv[]) {
     } catch (exception e) { log_fatal("cannot load scene {}", app->filename); }
 
     // tesselate input shapes
-    tesselate_shapes(app->scn);
+    tesselate_shapes(app->scn, true, !preserve_facevarying,
+        !preserve_quads && !preserve_facevarying, false);
 
     // add missing data
     add_elements(app->scn);
