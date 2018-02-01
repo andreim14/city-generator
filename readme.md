@@ -26,23 +26,23 @@ The sunset mode is a special mode that lets will create a sunset atmosphere maki
 ## Outputs and generation parameters:
 ![Image](images/example_2048px_size_50-sc_50-bc_40-u_80-sunset-mode.png)
     
-    `./bin/city_generator -size 50 -sc 50 -bc 40 -u 80 -s`
+`./bin/city_generator -size 50 -sc 50 -bc 40 -u 80 -s`
     
 ![Image](images/example_1024px_size_50-sc_50-bc_35-u_70.png)
     
-    `./bin/city_generator -size 50 -sc 50 -bc 35 -u 70 `
+`./bin/city_generator -size 50 -sc 50 -bc 35 -u 70 `
 
 ![Image](images/example_1024px_size_30-sc_60-bc_50-u_70.png)
     
-    `./bin/city_generator -size 30 -sc 60 -bc 50 -u 70 `
+`./bin/city_generator -size 30 -sc 60 -bc 50 -u 70 `
     
 ![Image](images/example_1024px_size_30-sc_60-bc_50-u_0.png)
     
-    `./bin/city_generator -size 30 -sc 60 -bc 50 -u 0 `
+`./bin/city_generator -size 30 -sc 60 -bc 50 -u 0 `
 
 ![Image](images/example_1024px_size_30-sc_60-bc_50-u_100.png)
     
-    `./bin/city_generator -size 30 -sc 60 -bc 50 -u 100 `
+`./bin/city_generator -size 30 -sc 60 -bc 50 -u 100 `
     
 You can find more examples in images folder.
 
@@ -87,15 +87,15 @@ The generation of the streets can be controlled by adjusting the `-sc` parameter
 
 ![Image](images/possible_street_generation.png)
 
-    `with high split chance`
+`with high split chance`
     
 ![Image](images/possible_street_generation_3.png)
     
-    `with 0 as split chance`
+`with 0 as split chance`
     
 ![Image](images/possible_street_generation_2.png)
     
-    `with default as split chance`
+`with default as split chance`
     
 ### Authors
 
