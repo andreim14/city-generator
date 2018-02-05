@@ -5,7 +5,7 @@ This project is based on [Yocto/GL](https://github.com/xelatihy/yocto-gl) Librar
 - Possibility to choose:
     - City size
     - Maximum number of floor of the buildings
-    - How many the streets have to be forked
+    - How many times the streets have to be forked
     - The chance to place a building
     - The chance to place trees
     - The urbanization (explained later)
