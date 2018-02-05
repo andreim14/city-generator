@@ -13,7 +13,7 @@ This project is based on [Yocto/GL](https://github.com/xelatihy/yocto-gl) Librar
 - Saving the scene to Obj file
 
 This generator creates a bidimensional matrix and populates it as follows. 
-At the beginning roads are created by using a sort of random walk algorithm. The algorithm "walks" in a direction and for each step it has a certain probaility to fork in a perpendicular direction (or double fork). If it forks, it will "walk" in the new direction and the fork probability will be halved. When the road reaches the border of the matrix or in some other critical case (such as a street parallel to the one near it) it will stop and the algorithm will continue from the point where it forked. 
+At the beginning roads are created by using a sort of random walk algorithm. The algorithm "walks" in a direction and for each step it has a certain probaility to fork in a perpendicular direction (or double fork). If it forks, it will "walk" in the new direction and the fork probability will be halved. When the road reaches the border of the matrix or some other critical cases (such as a street parallel to the one near it) it will stop and the algorithm will continue from the point where it forked. 
 The result is a random road network that contains crossroads and can be more or less complex depending on the input fork-probability. 
 After that we will have a matrix that contains the roads in order to let us place buildings and trees. The algorithm will then place buildings near the roads with the input of building-creation-probability, otherwise will place trees with the input of tree-creation-probability and will check the crossroads or the end of a road placing the right model.
 
