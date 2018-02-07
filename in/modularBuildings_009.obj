@@ -7,10 +7,10 @@ mtllib modularBuildings_009.mtl
 g Mesh1 Group1 Model
 
 usemtl Brick
-v 1 0 -0
+v 1 0 -1
 vt -39.3701 0
 vn 0 -1 -0
-v 0 0 -0
+v 0 0 -1
 vt 0 0
 v 0 0 -1
 vt 0 39.3701
